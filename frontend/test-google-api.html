@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Google Maps API Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .status {
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 8px;
+            font-weight: bold;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .warning {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeeba;
+        }
+        input {
+            width: 100%;
+            padding: 12px;
+            font-size: 16px;
+            border: 2px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        input:focus {
+            outline: none;
+            border-color: #4285f4;
+        }
+        .pac-container {
+            z-index: 10000;
+        }
+    </style>
+</head>
+<body>
+    <h1>Google Maps API Test</h1>
+    <p>This page tests if your Google Maps API key works and Places API is enabled.</p>
+
+    <div id="status" class="status warning">Loading Google Maps...</div>
+
+    <div style="margin-top: 30px;">
+        <label for="autocomplete"><strong>Test Address Autocomplete:</strong></label>
+        <input id="autocomplete" type="text" placeholder="Start typing an address...">
+        <p id="result" style="margin-top: 10px; color: #666;"></p>
+    </div>
+
+    <div style="margin-top: 30px; padding: 15px; background: #f5f5f5; border-radius: 8px;">
+        <h3>Your API Key:</h3>
+        <code>AIzaSyBE7aza9wByMePeMF1hhhvmLhfAlnZXjfY</code>
+
+        <h3 style="margin-top: 20px;">If autocomplete doesn't work:</h3>
+        <ol>
+            <li>Check browser console for errors (F12)</li>
+            <li>Verify Places API is enabled in <a href="https://console.cloud.google.com/google/maps-apis/api-list" target="_blank">Google Cloud Console</a></li>
+            <li>Check API key restrictions (should allow localhost:3000)</li>
+            <li>Make sure you have billing enabled (Google requires it even for free tier)</li>
+        </ol>
+    </div>
+
+    <script>
+        function initAutocomplete() {
+            const statusDiv = document.getElementById('status');
+            const input = document.getElementById('autocomplete');
+            const resultDiv = document.getElementById('result');
+
+            try {
+                statusDiv.className = 'status success';
+                statusDiv.textContent = '✓ Google Maps API loaded successfully!';
+
+                const autocomplete = new google.maps.places.Autocomplete(input, {
+                    componentRestrictions: { country: 'us' },
+                    fields: ['address_components', 'geometry', 'formatted_address', 'place_id']
+                });
+
+                autocomplete.addListener('place_changed', () => {
+                    const place = autocomplete.getPlace();
+
+                    if (!place.address_components) {
+                        resultDiv.textContent = '⚠ No address components found';
+                        resultDiv.style.color = '#d32f2f';
+                        return;
+                    }
+
+                    let streetNumber = '';
+                    let route = '';
+                    let city = '';
+                    let state = '';
+                    let zipCode = '';
+
+                    place.address_components.forEach(component => {
+                        const types = component.types;
+                        if (types.includes('street_number')) streetNumber = component.long_name;
+                        if (types.includes('route')) route = component.long_name;
+                        if (types.includes('locality')) city = component.long_name;
+                        if (types.includes('administrative_area_level_1')) state = component.short_name;
+                        if (types.includes('postal_code')) zipCode = component.long_name;
+                    });
+
+                    const addressLine1 = `${streetNumber} ${route}`.trim();
+
+                    resultDiv.innerHTML = `
+                        <strong>✓ Autocomplete Working!</strong><br>
+                        Street: ${addressLine1}<br>
+                        City: ${city}<br>
+                        State: ${state}<br>
+                        ZIP: ${zipCode}<br>
+                        Lat/Lng: ${place.geometry?.location?.lat()}, ${place.geometry?.location?.lng()}
+                    `;
+                    resultDiv.style.color = '#155724';
+                });
+
+                console.log('✓ Autocomplete initialized successfully');
+            } catch (error) {
+                statusDiv.className = 'status error';
+                statusDiv.textContent = '✗ Failed to initialize autocomplete: ' + error.message;
+                console.error('Initialization error:', error);
+            }
+        }
+
+        function handleError(error) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.className = 'status error';
+            statusDiv.textContent = '✗ Failed to load Google Maps API: ' + error.message;
+            console.error('Load error:', error);
+        }
+
+        window.initAutocomplete = initAutocomplete;
+    </script>
+
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBE7aza9wByMePeMF1hhhvmLhfAlnZXjfY&libraries=places&callback=initAutocomplete"
+            async defer onerror="handleError(new Error('Script failed to load'))"></script>
+</body>
+</html>
