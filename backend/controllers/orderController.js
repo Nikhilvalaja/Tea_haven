@@ -5,7 +5,7 @@ const { calculateOrderTotal } = require('../utils/shippingCalculator');
 const generateOrderNumber = async () => {
   const year = new Date().getFullYear();
   const lastOrder = await Order.findOne({
-    order: [['createdAt', 'DESC']]
+    order: [['created_at', 'DESC']]
   });
 
   let orderNum = 1;
@@ -218,7 +218,7 @@ const getOrders = async (req, res) => {
       ],
       limit: parseInt(limit),
       offset: parseInt(offset),
-      order: [['createdAt', 'DESC']]
+      order: [['created_at', 'DESC']]
     });
 
     res.json({
@@ -373,7 +373,7 @@ const getAllOrders = async (req, res) => {
       ],
       limit: parseInt(limit),
       offset: parseInt(offset),
-      order: [['createdAt', 'DESC']]
+      order: [['created_at', 'DESC']]
     });
 
     res.json({

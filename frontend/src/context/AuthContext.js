@@ -64,35 +64,53 @@ export const AuthProvider = ({ children }) => {
         // Check localStorage for saved token
         const savedToken = localStorage.getItem('teahaven_token');
         const savedUser = localStorage.getItem('teahaven_user');
-        
+
+        console.log('🔑 Auth initialization:', {
+          hasToken: !!savedToken,
+          hasUser: !!savedUser,
+          tokenPreview: savedToken ? savedToken.substring(0, 20) + '...' : 'none'
+        });
+
         if (savedToken && savedUser) {
-          // Verify token is still valid
-          const response = await fetch('/api/auth/verify', {
-            headers: {
-              'Authorization': `Bearer ${savedToken}`
+          // Always restore token from localStorage first
+          setToken(savedToken);
+          setUser(JSON.parse(savedUser));
+          console.log('✅ Token restored from localStorage');
+
+          // Verify token is still valid (optional check)
+          try {
+            const response = await fetch('/api/auth/verify', {
+              headers: {
+                'Authorization': `Bearer ${savedToken}`
+              }
+            });
+
+            console.log('✅ Token verification response:', response.ok, response.status);
+
+            // Only clear if explicitly unauthorized (401)
+            if (response.status === 401) {
+              console.log('❌ Token expired - clearing storage');
+              localStorage.removeItem('teahaven_token');
+              localStorage.removeItem('teahaven_user');
+              setToken(null);
+              setUser(null);
             }
-          });
-          
-          if (response.ok) {
-            // Token is valid - restore session
-            setToken(savedToken);
-            setUser(JSON.parse(savedUser));
-          } else {
-            // Token expired/invalid - clear storage
-            localStorage.removeItem('teahaven_token');
-            localStorage.removeItem('teahaven_user');
+          } catch (verifyErr) {
+            // Network error - keep the token, don't clear it
+            console.log('⚠️ Token verification failed (network), keeping token:', verifyErr.message);
           }
+        } else {
+          console.log('ℹ️ No saved session found');
         }
       } catch (err) {
-        console.error('Auth initialization error:', err);
-        // Clear potentially corrupted data
-        localStorage.removeItem('teahaven_token');
-        localStorage.removeItem('teahaven_user');
+        console.error('❌ Auth initialization error:', err);
+        // Don't clear storage on general errors
       } finally {
         setLoading(false);
+        console.log('🏁 Auth initialization complete');
       }
     };
-    
+
     initializeAuth();
   }, []); // Empty array = run once on mount
   

@@ -19,6 +19,8 @@ import Cart from './pages/Cart';
 import Checkout from './pages/Checkout';
 import Addresses from './pages/Addresses';
 import Orders from './pages/Orders';
+import OrderSuccess from './pages/OrderSuccess';
+import RefundRequest from './pages/RefundRequest';
 
 import './App.css';
 import './ModernStyles.css';
@@ -66,6 +68,18 @@ function App() {
               <Route path="/orders" element={
                 <ProtectedRoute>
                   <Orders />
+                </ProtectedRoute>
+              } />
+
+              <Route path="/orders/:orderId/refund" element={
+                <ProtectedRoute>
+                  <RefundRequest />
+                </ProtectedRoute>
+              } />
+
+              <Route path="/order-success" element={
+                <ProtectedRoute>
+                  <OrderSuccess />
                 </ProtectedRoute>
               } />
 

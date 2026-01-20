@@ -10,7 +10,7 @@
 // ============================================
 
 import React, { useState } from 'react';
-import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { Link, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 const Login = () => {
@@ -20,9 +20,12 @@ const Login = () => {
   const { login, loading, error, setError } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  
+  const [searchParams] = useSearchParams();
+
   // Get the page user was trying to access before login
-  const from = location.state?.from?.pathname || '/';
+  // Check both location.state and URL params (for Stripe redirects)
+  const returnUrl = searchParams.get('returnUrl');
+  const from = returnUrl || location.state?.from?.pathname || '/';
   
   // ----------------------------------------
   // Form State

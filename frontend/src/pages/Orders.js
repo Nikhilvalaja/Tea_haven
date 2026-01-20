@@ -3,12 +3,14 @@ import { useAuth } from '../context/AuthContext';
 import { Link } from 'react-router-dom';
 
 const Orders = () => {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [expandedOrderId, setExpandedOrderId] = useState(null);
 
   useEffect(() => {
     fetchOrders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchOrders = async () => {
@@ -35,16 +37,34 @@ const Orders = () => {
       processing: '#565959',
       shipped: '#0066C0',
       delivered: '#007600',
-      cancelled: '#C40000'
+      cancelled: '#C40000',
+      refunded: '#B12704'
     };
     return colors[status] || '#565959';
   };
 
-  const formatDate = (dateString) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
+  const formatDateTime = (dateString) => {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return '';
+
+    return date.toLocaleString('en-US', {
       year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  const formatMemberSince = (dateString) => {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return '';
+
+    return date.toLocaleDateString('en-US', {
       month: 'long',
-      day: 'numeric'
+      year: 'numeric'
     });
   };
 
@@ -58,7 +78,14 @@ const Orders = () => {
 
   return (
     <div className="container orders-page">
-      <h1>Your Orders</h1>
+      <div className="orders-header">
+        <div>
+          <h1>Your Orders</h1>
+          {user && user.createdAt && (
+            <p className="member-since">Member since {formatMemberSince(user.createdAt)}</p>
+          )}
+        </div>
+      </div>
 
       {orders.length === 0 ? (
         <div className="empty-state">
@@ -70,83 +97,98 @@ const Orders = () => {
           </Link>
         </div>
       ) : (
-        <div className="orders-list-full">
-          {orders.map(order => (
-            <div key={order.id} className="order-card-full">
-              <div className="order-header-full">
-                <div className="order-meta">
-                  <div className="meta-item">
-                    <span className="meta-label">ORDER PLACED</span>
-                    <span className="meta-value">{formatDate(order.createdAt)}</span>
-                  </div>
-                  <div className="meta-item">
-                    <span className="meta-label">TOTAL</span>
-                    <span className="meta-value">${parseFloat(order.totalAmount).toFixed(2)}</span>
-                  </div>
-                  <div className="meta-item">
-                    <span className="meta-label">SHIP TO</span>
-                    <span className="meta-value">{order.address?.fullName}</span>
-                  </div>
-                </div>
-                <div className="order-number">
-                  <span className="meta-label">ORDER # {order.orderNumber}</span>
-                </div>
-              </div>
-
-              <div className="order-status-row">
-                <span
-                  className="status-badge-lg"
-                  style={{ backgroundColor: getStatusColor(order.status) }}
+        <div className="orders-list-compact">
+          {orders.map(order => {
+            const isExpanded = expandedOrderId === order.id;
+            return (
+              <div key={order.id} className="order-card-compact">
+                {/* Compact Header - Always Visible */}
+                <div
+                  className="order-compact-header"
+                  onClick={() => setExpandedOrderId(isExpanded ? null : order.id)}
+                  style={{ cursor: 'pointer' }}
                 >
-                  {order.status.toUpperCase()}
-                </span>
-                {order.trackingNumber && (
-                  <span className="tracking-info">
-                    Tracking: {order.trackingNumber}
-                  </span>
+                  <div className="order-compact-info">
+                    <div className="order-id-date">
+                      <span className="order-number-compact">#{order.orderNumber}</span>
+                      <span className="order-date-compact">{formatDateTime(order.created_at || order.createdAt)}</span>
+                    </div>
+                    <span
+                      className="status-badge-compact"
+                      style={{ backgroundColor: getStatusColor(order.status) }}
+                    >
+                      {order.status.toUpperCase()}
+                    </span>
+                  </div>
+                  <div className="order-compact-summary">
+                    <span className="order-total-compact">${parseFloat(order.totalAmount).toFixed(2)}</span>
+                    <span className="expand-icon">{isExpanded ? '▲' : '▼'}</span>
+                  </div>
+                </div>
+
+                {/* Expanded Details - Show on Click */}
+                {isExpanded && (
+                  <div className="order-expanded-details">
+                    <div className="order-ship-to">
+                      <strong>Ship to:</strong> {order.address?.fullName}
+                    </div>
+
+                    <div className="order-items-list">
+                      <h4>Items:</h4>
+                      {order.items?.map(item => (
+                        <div key={item.id} className="order-item-compact">
+                          <div className="item-details">
+                            <span className="item-name">{item.productName}</span>
+                            <span className="item-quantity">Qty: {item.quantity} × ${parseFloat(item.priceAtPurchase).toFixed(2)}</span>
+                          </div>
+                          <span className="item-total">${parseFloat(item.totalPrice).toFixed(2)}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="order-summary-compact">
+                      <div className="summary-row">
+                        <span>Subtotal:</span>
+                        <span>${parseFloat(order.subtotal).toFixed(2)}</span>
+                      </div>
+                      <div className="summary-row">
+                        <span>Shipping:</span>
+                        <span>${parseFloat(order.shippingCost).toFixed(2)}</span>
+                      </div>
+                      <div className="summary-row">
+                        <span>Tax:</span>
+                        <span>${parseFloat(order.taxAmount).toFixed(2)}</span>
+                      </div>
+                      <div className="summary-row total-row">
+                        <strong>Total:</strong>
+                        <strong>${parseFloat(order.totalAmount).toFixed(2)}</strong>
+                      </div>
+                    </div>
+
+                    <div className="order-actions-compact">
+                      {order.trackingNumber && (
+                        <button className="btn btn-secondary-sm">
+                          Track Order
+                        </button>
+                      )}
+                      {(order.status === 'pending' || order.status === 'confirmed' || order.status === 'processing') &&
+                       order.paymentStatus === 'paid' && (
+                        <Link
+                          to={`/orders/${order.id}/refund`}
+                          className="btn btn-danger-sm"
+                        >
+                          Request Refund
+                        </Link>
+                      )}
+                      {order.paymentStatus === 'refunded' && (
+                        <span className="refund-badge-sm">✓ Refunded</span>
+                      )}
+                    </div>
+                  </div>
                 )}
               </div>
-
-              <div className="order-items-list">
-                {order.items?.map(item => (
-                  <div key={item.id} className="order-item-full">
-                    <div className="item-details">
-                      <h4>{item.productName}</h4>
-                      <p className="item-meta">Quantity: {item.quantity} | Price: ${parseFloat(item.priceAtPurchase).toFixed(2)} each</p>
-                    </div>
-                    <div className="item-total">
-                      ${parseFloat(item.totalPrice).toFixed(2)}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="order-summary">
-                <div className="summary-row">
-                  <span>Subtotal:</span>
-                  <span>${parseFloat(order.subtotal).toFixed(2)}</span>
-                </div>
-                <div className="summary-row">
-                  <span>Shipping:</span>
-                  <span>${parseFloat(order.shippingCost).toFixed(2)}</span>
-                </div>
-                <div className="summary-row">
-                  <span>Tax:</span>
-                  <span>${parseFloat(order.taxAmount).toFixed(2)}</span>
-                </div>
-                <div className="summary-row total-row">
-                  <strong>Total:</strong>
-                  <strong>${parseFloat(order.totalAmount).toFixed(2)}</strong>
-                </div>
-              </div>
-
-              {order.customerNotes && (
-                <div className="order-notes">
-                  <strong>Your Notes:</strong> {order.customerNotes}
-                </div>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

@@ -93,7 +93,25 @@ const Order = sequelize.define('Order', {
     type: DataTypes.STRING(50),
     allowNull: true,
     field: 'payment_method',
-    comment: 'Will be added later (Stripe, PayPal, etc.)'
+    comment: 'Payment method used (card, etc.)'
+  },
+  stripeSessionId: {
+    type: DataTypes.STRING(255),
+    allowNull: true,
+    field: 'stripe_session_id',
+    comment: 'Stripe Checkout Session ID'
+  },
+  stripePaymentIntentId: {
+    type: DataTypes.STRING(255),
+    allowNull: true,
+    field: 'stripe_payment_intent_id',
+    comment: 'Stripe Payment Intent ID'
+  },
+  shippingAddress: {
+    type: DataTypes.JSON,
+    allowNull: true,
+    field: 'shipping_address',
+    comment: 'Snapshot of shipping address at time of order'
   },
   // Additional info
   customerNotes: {

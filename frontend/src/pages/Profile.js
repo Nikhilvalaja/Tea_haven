@@ -39,6 +39,31 @@ const Profile = () => {
     }
   };
 
+  const formatDateTime = (dateString) => {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return '';
+
+    return date.toLocaleString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  const formatMemberSince = (dateString) => {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return '';
+
+    return date.toLocaleDateString('en-US', {
+      month: 'long',
+      year: 'numeric'
+    });
+  };
+
   const recentOrders = orders.slice(0, 3);
   const defaultAddress = addresses.find(a => a.isDefault);
 
@@ -140,11 +165,7 @@ const Profile = () => {
                       </div>
                       <div className="order-mini-details">
                         <div className="order-mini-date">
-                          {new Date(order.createdAt).toLocaleDateString('en-US', {
-                            month: 'short',
-                            day: 'numeric',
-                            year: 'numeric'
-                          })}
+                          {formatDateTime(order.created_at || order.createdAt)}
                         </div>
                         <div className="order-mini-total">
                           ${parseFloat(order.totalAmount).toFixed(2)}
@@ -215,10 +236,7 @@ const Profile = () => {
                 <div className="info-item-modern">
                   <div className="info-label-modern">Member Since</div>
                   <div className="info-value-modern">
-                    {new Date(user.createdAt).toLocaleDateString('en-US', {
-                      month: 'long',
-                      year: 'numeric'
-                    })}
+                    {formatMemberSince(user.createdAt)}
                   </div>
                 </div>
               </div>

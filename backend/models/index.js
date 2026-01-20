@@ -91,6 +91,16 @@ Product.hasMany(OrderItem, {
   as: 'orderItems'
 });
 
+// Order belongs to Address
+Order.belongsTo(Address, {
+  foreignKey: 'addressId',
+  as: 'address'
+});
+Address.hasMany(Order, {
+  foreignKey: 'addressId',
+  as: 'orders'
+});
+
 // ============================================
 // EXPORT ALL MODELS
 // ============================================

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import '../CheckoutStyles.css';
@@ -8,6 +8,7 @@ const Checkout = () => {
   const { token, user } = useAuth();
   const { cart, cartTotal, cartCount, clearCart } = useCart();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   const [addresses, setAddresses] = useState([]);
   const [selectedAddressId, setSelectedAddressId] = useState(null);
@@ -15,6 +16,7 @@ const Checkout = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [orderSummary, setOrderSummary] = useState(null);
+  const [paymentCancelled, setPaymentCancelled] = useState(false);
 
   // New state for enhanced checkout
   const [currentStep, setCurrentStep] = useState(1); // 1: Shipping, 2: Payment, 3: Review
@@ -25,6 +27,12 @@ const Checkout = () => {
 
   useEffect(() => {
     fetchAddresses();
+
+    // Check if payment was cancelled
+    if (searchParams.get('payment') === 'cancelled') {
+      setPaymentCancelled(true);
+      setError('Payment was cancelled. Please try again.');
+    }
   }, []);
 
   useEffect(() => {
@@ -146,31 +154,29 @@ const Checkout = () => {
     setError(null);
 
     try {
-      const response = await fetch('/api/orders', {
+      // Create Stripe Checkout Session
+      const response = await fetch('/api/payment/create-checkout-session', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          addressId: selectedAddressId,
-          customerNotes
+          addressId: selectedAddressId
         })
       });
 
       const data = await response.json();
 
-      if (data.success) {
-        await clearCart();
-        navigate('/profile', {
-          state: { orderSuccess: true, orderNumber: data.data.orderNumber }
-        });
+      if (data.success && data.url) {
+        // Redirect to Stripe Checkout page
+        window.location.href = data.url;
       } else {
-        setError(data.message);
+        setError(data.message || 'Failed to create checkout session');
       }
     } catch (err) {
-      console.error('Failed to place order:', err);
-      setError('Failed to place order. Please try again.');
+      console.error('Failed to create checkout session:', err);
+      setError('Failed to proceed to payment. Please try again.');
     } finally {
       setLoading(false);
     }

@@ -3,6 +3,7 @@
 // ============================================
 // This is the main entry point for the backend API server.
 // It sets up Express, connects to the database, and mounts all routes.
+//
 
 require('dotenv').config();
 const express = require('express');
@@ -15,6 +16,7 @@ const productRoutes = require('./routes/productRoutes');
 const cartRoutes = require('./routes/cartRoutes');
 const addressRoutes = require('./routes/addressRoutes');
 const orderRoutes = require('./routes/orderRoutes');
+const paymentRoutes = require('./routes/paymentRoutes');
 
 // ============================================
 // SERVER CONFIGURATION
@@ -68,6 +70,7 @@ app.use('/api/products', productRoutes);
 app.use('/api/cart', cartRoutes);
 app.use('/api/addresses', addressRoutes);
 app.use('/api/orders', orderRoutes);
+app.use('/api/payment', paymentRoutes);
 
 // Root endpoint
 app.get('/', (req, res) => {
@@ -125,6 +128,38 @@ const startServer = async () => {
     console.log('\n🔄 Syncing database models...');
     await sequelize.sync({ alter: false }); // Use { alter: true } to update schema
     console.log('✅ Database models synced');
+
+    // DEVELOPMENT ONLY: Auto-confirm orders after 1 hour
+    if (process.env.NODE_ENV !== 'production') {
+      const { Order } = require('./models');
+
+      setInterval(async () => {
+        try {
+          const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+
+          const ordersToConfirm = await Order.findAll({
+            where: {
+              status: 'pending',
+              paymentStatus: 'paid',
+              created_at: {
+                [require('sequelize').Op.lte]: oneHourAgo
+              }
+            }
+          });
+
+          if (ordersToConfirm.length > 0) {
+            for (const order of ordersToConfirm) {
+              await order.update({ status: 'confirmed' });
+              console.log(`✅ Auto-confirmed order ${order.orderNumber} (dev mode)`);
+            }
+          }
+        } catch (err) {
+          console.error('❌ Auto-confirm error:', err.message);
+        }
+      }, 5 * 60 * 1000); // Check every 5 minutes
+
+      console.log('⚙️  Development mode: Auto-confirm enabled (1 hour)');
+    }
 
     // Start Express server
     app.listen(PORT, () => {
