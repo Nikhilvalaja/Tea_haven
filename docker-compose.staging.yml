@@ -1,0 +1,152 @@
+# ============================================
+# TEAHAVEN - DOCKER COMPOSE (STAGING)
+# ============================================
+# Usage: docker-compose -f docker-compose.staging.yml up -d
+
+version: '3.8'
+
+services:
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    container_name: teahaven-mysql-staging
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - mysql_data_staging:/var/lib/mysql
+      - ./backups:/backups
+    networks:
+      - teahaven-staging
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    container_name: teahaven-redis-staging
+    restart: always
+    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data_staging:/data
+    networks:
+      - teahaven-staging
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  # Backend API
+  backend:
+    image: ${DOCKER_REGISTRY:-localhost}/teahaven-backend:staging
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    container_name: teahaven-backend-staging
+    restart: always
+    environment:
+      NODE_ENV: staging
+      PORT: 5000
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: 7d
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+      FRONTEND_URL: https://staging.${DOMAIN}
+    volumes:
+      - backend_logs_staging:/app/logs
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - teahaven-staging
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # Frontend
+  frontend:
+    image: ${DOCKER_REGISTRY:-localhost}/teahaven-frontend:staging
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+      args:
+        REACT_APP_API_URL: https://staging.${DOMAIN}/api
+        REACT_APP_STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY}
+        REACT_APP_GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY}
+    container_name: teahaven-frontend-staging
+    restart: always
+    depends_on:
+      - backend
+    networks:
+      - teahaven-staging
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: teahaven-nginx-staging
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/staging.conf:/etc/nginx/nginx.conf:ro
+      - ./certbot/www:/var/www/certbot:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - teahaven-staging
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+
+  # Certbot for SSL
+  certbot:
+    image: certbot/certbot
+    container_name: teahaven-certbot-staging
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+    networks:
+      - teahaven-staging
+
+volumes:
+  mysql_data_staging:
+  redis_data_staging:
+  backend_logs_staging:
+
+networks:
+  teahaven-staging:
+    driver: bridge

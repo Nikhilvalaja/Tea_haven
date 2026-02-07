@@ -1,70 +1,110 @@
 # ============================================
-# DOCKER COMPOSE - TEAHAVEN
+# TEAHAVEN - DOCKER COMPOSE (DEVELOPMENT)
 # ============================================
-# Docker Compose lets us define and run multiple containers
-# with a single command: docker-compose up
-#
-# What is Docker?
-# - Think of it as a lightweight virtual machine
-# - Each "container" is an isolated environment
-# - We use it to run MySQL without installing it on your computer
+# Usage: docker-compose up -d
 
 version: '3.8'
 
 services:
-  # ----------------------------------------
-  # MySQL Database Service
-  # ----------------------------------------
-  # This creates a MySQL container that our backend connects to
-  
+  # MySQL Database
   mysql:
-    # Use the official MySQL 8.0 image from Docker Hub
     image: mysql:8.0
-    
-    # Name the container so we can reference it easily
     container_name: teahaven-mysql
-    
-    # Restart automatically if it crashes
     restart: unless-stopped
-    
-    # Environment variables configure MySQL on first run
     environment:
-      # Root password (for admin access)
-      MYSQL_ROOT_PASSWORD: teahaven123
-      
-      # Create a database automatically
-      MYSQL_DATABASE: teahaven
-      
-      # Optional: Create a regular user (more secure for production)
-      # MYSQL_USER: teahaven_user
-      # MYSQL_PASSWORD: teahaven_user_pass
-    
-    # Port mapping: HOST_PORT:CONTAINER_PORT
-    # This lets us access MySQL from localhost:3306
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootpassword}
+      MYSQL_DATABASE: ${DB_NAME:-teahaven}
+      MYSQL_USER: ${DB_USER:-teahaven}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-teahaven123}
     ports:
       - "3306:3306"
-    
-    # Volumes persist data even when container stops
-    # Without this, you'd lose all data on restart!
     volumes:
-      # Named volume for database files
-      - teahaven_mysql_data:/var/lib/mysql
-      
-      # Mount init scripts (runs on first startup)
+      - mysql_data:/var/lib/mysql
       - ./database/init:/docker-entrypoint-initdb.d
-    
-    # Health check - Docker verifies MySQL is actually ready
+    networks:
+      - teahaven-network
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-      timeout: 20s
-      retries: 10
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-# ----------------------------------------
-# Volumes
-# ----------------------------------------
-# Named volumes persist data outside containers
+  # Redis (for sessions and caching)
+  redis:
+    image: redis:7-alpine
+    container_name: teahaven-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - teahaven-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    container_name: teahaven-backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      PORT: 5000
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: ${DB_USER:-teahaven}
+      DB_PASSWORD: ${DB_PASSWORD:-teahaven123}
+      DB_NAME: ${DB_NAME:-teahaven}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: ${JWT_SECRET:-change-this-in-production}
+      JWT_EXPIRES_IN: 30d
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+      FRONTEND_URL: http://localhost:3000
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+      - backend_logs:/app/logs
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - teahaven-network
+
+  # Frontend (React dev server)
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+      args:
+        REACT_APP_API_URL: http://localhost:5000
+        REACT_APP_STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY}
+        REACT_APP_GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY}
+    container_name: teahaven-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - teahaven-network
 
 volumes:
-  teahaven_mysql_data:
-    # This volume stores all MySQL data
-    # Even if you delete the container, data remains
+  mysql_data:
+  redis_data:
+  backend_logs:
+
+networks:
+  teahaven-network:
+    driver: bridge

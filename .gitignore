@@ -63,9 +63,10 @@ temp/
 backend/uploads/
 uploads/
 
-# Documentation (generated during conversation)
-*.md
+# Documentation (ignore generated docs, keep important ones)
+# *.md  # Uncomment to ignore markdown files
 !README.md
+!DEPLOYMENT.md
 
 # Build artifacts
 *.tsbuildinfo

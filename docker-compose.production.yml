@@ -1,0 +1,175 @@
+# ============================================
+# TEAHAVEN - DOCKER COMPOSE (PRODUCTION)
+# ============================================
+# Usage: docker-compose -f docker-compose.production.yml up -d
+
+version: '3.8'
+
+services:
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    container_name: teahaven-mysql-prod
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - mysql_data_prod:/var/lib/mysql
+      - ./backups:/backups
+    networks:
+      - teahaven-prod
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    container_name: teahaven-redis-prod
+    restart: always
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data_prod:/data
+    networks:
+      - teahaven-prod
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Backend API
+  backend:
+    image: ${DOCKER_REGISTRY}/teahaven-backend:${VERSION:-latest}
+    container_name: teahaven-backend-prod
+    restart: always
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: 7d
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+      FRONTEND_URL: https://${DOMAIN}
+      RATE_LIMIT_WINDOW_MS: 900000
+      RATE_LIMIT_MAX_REQUESTS: 100
+    volumes:
+      - backend_logs_prod:/app/logs
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - teahaven-prod
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "10"
+
+  # Frontend
+  frontend:
+    image: ${DOCKER_REGISTRY}/teahaven-frontend:${VERSION:-latest}
+    container_name: teahaven-frontend-prod
+    restart: always
+    depends_on:
+      - backend
+    networks:
+      - teahaven-prod
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: teahaven-nginx-prod
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/production.conf:/etc/nginx/nginx.conf:ro
+      - ./certbot/www:/var/www/certbot:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+      - nginx_cache:/var/cache/nginx
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - teahaven-prod
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # Certbot for SSL auto-renewal
+  certbot:
+    image: certbot/certbot
+    container_name: teahaven-certbot-prod
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+    networks:
+      - teahaven-prod
+
+volumes:
+  mysql_data_prod:
+  redis_data_prod:
+  backend_logs_prod:
+  nginx_cache:
+
+networks:
+  teahaven-prod:
+    driver: bridge

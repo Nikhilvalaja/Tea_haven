@@ -1,0 +1,38 @@
+# Git
+.git
+.gitignore
+
+# Dependencies (rebuild in container)
+node_modules
+*/node_modules
+
+# Build artifacts
+frontend/build
+*.log
+
+# Environment files (use docker-compose env)
+.env*
+!.env.example
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Backups and certs (mounted as volumes)
+backups/
+certbot/
+
+# Documentation
+*.md
+!README.md
+
+# Tests
+coverage/
+*.test.js
+__tests__/
