@@ -153,22 +153,40 @@ exports.getCategories = async (req, res) => {
 exports.createProduct = async (req, res) => {
   try {
     const {
+      // Basic info
       name,
       description,
-      price,
-      stockQuantity,
       category,
       imageUrl,
+      // Pricing
+      mrp,
+      price,
+      discount,
+      // Tea details
       teaType,
       packetSize,
       packetSizeGrams,
+      packagingType,
+      // Origin & shipping
       isImported,
       shippingDays,
       originCountry,
+      // Tea characteristics
+      caffeineLevel,
+      flavourNotes,
+      brewingInstructions,
+      brewingTemp,
+      brewingTime,
+      // Supplier
+      supplier,
+      supplierCode,
+      // Inventory
       sku,
       barcode,
+      stockQuantity,
       warehouseStock,
       reorderLevel,
+      lowStockThreshold,
       purchaseCost,
       profitMargin
     } = req.body;
@@ -176,23 +194,35 @@ exports.createProduct = async (req, res) => {
     const product = await Product.create({
       name,
       description,
-      price,
-      stockQuantity: stockQuantity || 0,
       category,
       imageUrl,
+      mrp,
+      price,
+      discount: discount || 0,
       teaType: teaType || 'loose_leaf',
       packetSize,
       packetSizeGrams,
+      packagingType,
       isImported: isImported || false,
       shippingDays: shippingDays || (isImported ? 12 : 3),
       originCountry,
+      caffeineLevel,
+      flavourNotes,
+      brewingInstructions,
+      brewingTemp,
+      brewingTime,
+      supplier,
+      supplierCode,
       sku,
       barcode,
+      stockQuantity: stockQuantity || 0,
       warehouseStock: warehouseStock || 0,
       reorderLevel: reorderLevel || 10,
+      lowStockThreshold: lowStockThreshold || 5,
       purchaseCost,
       profitMargin,
-      isActive: true
+      isActive: true,
+      lastRestockedAt: stockQuantity > 0 ? new Date() : null
     });
 
     res.status(201).json({
@@ -268,6 +298,59 @@ exports.deleteProduct = async (req, res) => {
   }
 };
 
+// Admin: Get ALL products (including inactive)
+exports.getAllProductsAdmin = async (req, res) => {
+  try {
+    const products = await Product.findAll({
+      order: [['name', 'ASC']]
+    });
+
+    res.json({
+      success: true,
+      products: products,
+      count: products.length
+    });
+  } catch (error) {
+    console.error('Failed to fetch all products:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch products',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Admin: Toggle product active status
+exports.toggleProductStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const product = await Product.findByPk(id);
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: 'Product not found'
+      });
+    }
+
+    product.isActive = !product.isActive;
+    await product.save();
+
+    res.json({
+      success: true,
+      message: `Product ${product.isActive ? 'activated' : 'deactivated'} successfully`,
+      data: product
+    });
+  } catch (error) {
+    console.error('Failed to toggle product status:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to toggle product status',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 // Admin: Get inventory overview
 exports.getInventoryOverview = async (req, res) => {
   try {
@@ -316,19 +399,55 @@ exports.getInventoryOverview = async (req, res) => {
   }
 };
 
-// Admin: Get low stock alerts
+// Admin: Get stock alerts (low stock and out of stock)
+exports.getStockAlerts = async (req, res) => {
+  try {
+    // Get all active products
+    const allProducts = await Product.findAll({
+      where: { isActive: true },
+      order: [['stockQuantity', 'ASC']]
+    });
+
+    // Categorize by stock status
+    const outOfStock = allProducts.filter(p => p.stockQuantity === 0);
+    const lowStock = allProducts.filter(p =>
+      p.stockQuantity > 0 && p.stockQuantity <= (p.lowStockThreshold || 5)
+    );
+    const needsReorder = allProducts.filter(p =>
+      p.stockQuantity <= (p.reorderLevel || 10) && p.stockQuantity > (p.lowStockThreshold || 5)
+    );
+
+    res.json({
+      success: true,
+      data: {
+        outOfStock,
+        lowStock,
+        needsReorder
+      },
+      summary: {
+        outOfStockCount: outOfStock.length,
+        lowStockCount: lowStock.length,
+        needsReorderCount: needsReorder.length,
+        totalAlerts: outOfStock.length + lowStock.length
+      }
+    });
+  } catch (error) {
+    console.error('Failed to fetch stock alerts:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch stock alerts',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Legacy: Get low stock alerts (kept for backward compatibility)
 exports.getLowStockAlerts = async (req, res) => {
   try {
     const products = await Product.findAll({
       where: {
         isActive: true,
-        [Op.or]: [
-          Product.sequelize.where(
-            Product.sequelize.col('stock_quantity'),
-            Op.lte,
-            Product.sequelize.col('reorder_level')
-          )
-        ]
+        stockStatus: { [Op.in]: ['low_stock', 'out_of_stock'] }
       },
       order: [['stockQuantity', 'ASC']]
     });
@@ -428,4 +547,204 @@ exports.findByBarcode = async (req, res) => {
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
+};
+
+// Admin: Add stock to product
+exports.addStock = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { quantity, reason, referenceNumber, unitCost } = req.body;
+
+    if (!quantity || quantity <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Quantity must be a positive number'
+      });
+    }
+
+    const product = await Product.findByPk(id);
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: 'Product not found'
+      });
+    }
+
+    const previousStock = product.stockQuantity;
+    product.stockQuantity += parseInt(quantity);
+    product.lastRestockedAt = new Date();
+
+    // Update unit cost if provided
+    if (unitCost) {
+      product.purchaseCost = parseFloat(unitCost);
+    }
+
+    await product.save();
+
+    // Log to inventory (if InventoryLog model exists)
+    try {
+      const { InventoryLog } = require('../models');
+      await InventoryLog.create({
+        productId: id,
+        action: 'purchase_in',
+        quantityChange: parseInt(quantity),
+        previousStock,
+        newStock: product.stockQuantity,
+        userId: req.user?.userId || req.user?.id,
+        reason: reason || 'Stock added',
+        referenceNumber,
+        unitCost: unitCost ? parseFloat(unitCost) : null,
+        totalValue: unitCost ? parseFloat(unitCost) * parseInt(quantity) : null
+      });
+    } catch (logError) {
+      console.warn('Could not log inventory change:', logError.message);
+    }
+
+    res.json({
+      success: true,
+      message: `Added ${quantity} units to stock`,
+      data: {
+        product,
+        previousStock,
+        newStock: product.stockQuantity,
+        added: parseInt(quantity)
+      }
+    });
+  } catch (error) {
+    console.error('Failed to add stock:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to add stock',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Admin: Remove stock from product
+exports.removeStock = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { quantity, reason } = req.body;
+
+    if (!quantity || quantity <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Quantity must be a positive number'
+      });
+    }
+
+    const product = await Product.findByPk(id);
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: 'Product not found'
+      });
+    }
+
+    if (product.stockQuantity < quantity) {
+      return res.status(400).json({
+        success: false,
+        message: `Insufficient stock. Available: ${product.stockQuantity}`
+      });
+    }
+
+    const previousStock = product.stockQuantity;
+    product.stockQuantity -= parseInt(quantity);
+    await product.save();
+
+    // Log to inventory
+    try {
+      const { InventoryLog } = require('../models');
+      await InventoryLog.create({
+        productId: id,
+        action: 'adjustment_sub',
+        quantityChange: -parseInt(quantity),
+        previousStock,
+        newStock: product.stockQuantity,
+        userId: req.user?.userId || req.user?.id,
+        reason: reason || 'Stock removed manually'
+      });
+    } catch (logError) {
+      console.warn('Could not log inventory change:', logError.message);
+    }
+
+    res.json({
+      success: true,
+      message: `Removed ${quantity} units from stock`,
+      data: {
+        product,
+        previousStock,
+        newStock: product.stockQuantity,
+        removed: parseInt(quantity)
+      }
+    });
+  } catch (error) {
+    console.error('Failed to remove stock:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to remove stock',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Admin: Get product with full details for editing
+exports.getProductForEdit = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const product = await Product.findByPk(id);
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: 'Product not found'
+      });
+    }
+
+    // Get inventory history
+    let inventoryHistory = [];
+    try {
+      const { InventoryLog } = require('../models');
+      inventoryHistory = await InventoryLog.findAll({
+        where: { productId: id },
+        order: [['created_at', 'DESC']],
+        limit: 20
+      });
+    } catch (e) {
+      // InventoryLog might not exist
+    }
+
+    res.json({
+      success: true,
+      data: {
+        product,
+        inventoryHistory,
+        stockInfo: {
+          isLowStock: product.stockQuantity <= (product.lowStockThreshold || 5),
+          isOutOfStock: product.stockQuantity === 0,
+          needsReorder: product.stockQuantity <= (product.reorderLevel || 10)
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Failed to fetch product:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch product',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Get enum options for dropdowns
+exports.getProductEnums = async (req, res) => {
+  res.json({
+    success: true,
+    data: {
+      teaTypes: ['loose_leaf', 'tea_bags', 'both'],
+      caffeinelevels: ['caffeine_free', 'low', 'medium', 'high'],
+      packagingTypes: ['pouch', 'box', 'tin', 'jar', 'sachet', 'gift_box'],
+      stockStatuses: ['in_stock', 'low_stock', 'out_of_stock']
+    }
+  });
 };

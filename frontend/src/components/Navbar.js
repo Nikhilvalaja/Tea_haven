@@ -2,16 +2,23 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
+import { useToast } from '../context/ToastContext';
 
 const Navbar = () => {
   const { user, isAuthenticated, logout } = useAuth();
   const { cartCount } = useCart();
+  const { showInfo } = useToast();
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
 
+  // Check if user is admin (manager, admin, or super_admin)
+  const isAdmin = user && ['manager', 'admin', 'super_admin'].includes(user.role);
+
   const handleLogout = async () => {
+    const userName = user?.firstName || 'User';
     await logout();
+    showInfo(`Goodbye, ${userName}! You have been logged out.`);
     navigate('/');
   };
 
@@ -31,8 +38,29 @@ const Navbar = () => {
     { name: 'White Tea', value: 'white' }
   ];
 
+  const getRoleBanner = () => {
+    if (!user?.role) return null;
+    const roleConfig = {
+      super_admin: { label: 'Super Admin', color: '#7B1FA2' },
+      admin: { label: 'Admin', color: '#1976D2' },
+      manager: { label: 'Manager', color: '#F57C00' }
+    };
+    const config = roleConfig[user.role];
+    if (!config) return null;
+    return config;
+  };
+
+  const roleBanner = getRoleBanner();
+
   return (
     <nav className="modern-navbar">
+      {/* Admin Role Banner */}
+      {roleBanner && (
+        <div className="admin-role-banner" style={{ background: roleBanner.color }}>
+          <span>🔐 Logged in as <strong>{roleBanner.label}</strong> ({user.email})</span>
+        </div>
+      )}
+
       {/* Top Bar */}
       <div className="navbar-top">
         <div className="navbar-container-modern">
@@ -111,6 +139,13 @@ const Navbar = () => {
             <Link to="/products" className="nav-link-modern">All Products</Link>
             <Link to="/products?filter=imported" className="nav-link-modern">Imported Teas</Link>
             <Link to="/products?filter=local" className="nav-link-modern">Local Stock</Link>
+
+            {/* Admin Panel Link */}
+            {isAdmin && (
+              <Link to="/admin" className="admin-panel-link">
+                ⚙️ Admin Panel
+              </Link>
+            )}
           </div>
         </div>
       </div>

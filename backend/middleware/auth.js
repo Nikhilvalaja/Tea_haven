@@ -60,7 +60,10 @@ const isAdmin = (req, res, next) => {
     });
   }
 
-  if (req.user.role !== 'admin') {
+  // Admin roles that have access to admin panel
+  const adminRoles = ['manager', 'admin', 'super_admin'];
+
+  if (!adminRoles.includes(req.user.role)) {
     return res.status(403).json({
       success: false,
       message: 'Access denied. Admin privileges required.'

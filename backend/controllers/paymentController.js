@@ -1,6 +1,57 @@
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-const { Order, OrderItem, Cart, CartItem, Product, User, Address } = require('../models');
+const { Order, OrderItem, Cart, CartItem, Product, User, Address, sequelize } = require('../models');
 const { calculateShipping, calculateTax } = require('../utils/shippingCalculator');
+const { logger } = require('../utils/logger');
+const StockService = require('../services/StockService');
+const crypto = require('crypto');
+
+// ============================================
+// IDEMPOTENCY KEY MANAGEMENT
+// ============================================
+// In-memory store for idempotency keys (production should use Redis)
+const idempotencyStore = new Map();
+const IDEMPOTENCY_TTL = 24 * 60 * 60 * 1000; // 24 hours
+
+/**
+ * Generate idempotency key from user and cart state
+ * This ensures same cart content = same key = prevents duplicates
+ */
+const generateIdempotencyKey = (userId, cartId, addressId, cartItemsHash) => {
+  return crypto.createHash('sha256')
+    .update(`${userId}-${cartId}-${addressId}-${cartItemsHash}`)
+    .digest('hex');
+};
+
+/**
+ * Hash cart items for idempotency comparison
+ */
+const hashCartItems = (items) => {
+  const itemData = items.map(i => `${i.productId}:${i.quantity}`).sort().join('|');
+  return crypto.createHash('md5').update(itemData).digest('hex');
+};
+
+/**
+ * Check and store idempotency key
+ * @returns {Object|null} Previous result if exists, null if new
+ */
+const checkIdempotency = (key) => {
+  const existing = idempotencyStore.get(key);
+  if (existing && Date.now() - existing.timestamp < IDEMPOTENCY_TTL) {
+    return existing.result;
+  }
+  return null;
+};
+
+const storeIdempotency = (key, result) => {
+  idempotencyStore.set(key, { result, timestamp: Date.now() });
+  // Cleanup old entries periodically
+  if (idempotencyStore.size > 10000) {
+    const cutoff = Date.now() - IDEMPOTENCY_TTL;
+    for (const [k, v] of idempotencyStore) {
+      if (v.timestamp < cutoff) idempotencyStore.delete(k);
+    }
+  }
+};
 
 // Create Stripe Checkout Session
 const createCheckoutSession = async (req, res) => {
@@ -8,7 +59,7 @@ const createCheckoutSession = async (req, res) => {
     const userId = req.user.userId;
     const { addressId } = req.body;
 
-    // Get user's cart
+    // Get user's cart with CURRENT product prices from database
     const cart = await Cart.findOne({
       where: { userId },
       include: [{
@@ -16,7 +67,8 @@ const createCheckoutSession = async (req, res) => {
         as: 'items',
         include: [{
           model: Product,
-          as: 'product'
+          as: 'product',
+          where: { isActive: true } // Only active products
         }]
       }]
     });
@@ -26,6 +78,15 @@ const createCheckoutSession = async (req, res) => {
         success: false,
         message: 'Cart is empty'
       });
+    }
+
+    // Check idempotency - prevent duplicate checkout sessions
+    const cartHash = hashCartItems(cart.items);
+    const idempotencyKey = generateIdempotencyKey(userId, cart.id, addressId, cartHash);
+    const existingResult = checkIdempotency(idempotencyKey);
+    if (existingResult) {
+      logger.info('Returning cached checkout session (idempotency)', { userId, idempotencyKey });
+      return res.json(existingResult);
     }
 
     // Get shipping address
@@ -40,32 +101,55 @@ const createCheckoutSession = async (req, res) => {
       });
     }
 
-    // Calculate totals
-    const subtotal = cart.items.reduce((sum, item) => {
-      return sum + (parseFloat(item.priceAtAdd) * item.quantity);
-    }, 0);
+    // SECURITY: Validate stock availability BEFORE creating checkout session
+    // This prevents overselling
+    for (const item of cart.items) {
+      const stockCheck = await StockService.checkAvailability(item.productId, item.quantity);
+      if (!stockCheck.available) {
+        return res.status(400).json({
+          success: false,
+          message: `${item.product.name}: ${stockCheck.message}`
+        });
+      }
+    }
+
+    // SECURITY: Calculate totals using CURRENT DATABASE PRICES
+    // Never trust frontend prices - always fetch from Product table
+    let subtotal = 0;
+    const lineItems = [];
+
+    for (const item of cart.items) {
+      // Use current product.price from database, NOT priceAtAdd
+      const currentPrice = parseFloat(item.product.price);
+      const itemTotal = currentPrice * item.quantity;
+      subtotal += itemTotal;
+
+      lineItems.push({
+        price_data: {
+          currency: 'usd',
+          product_data: {
+            name: item.product.name,
+            description: item.product.description?.substring(0, 100) || '',
+            images: item.product.imageUrl ? [item.product.imageUrl] : [],
+            metadata: {
+              productId: item.productId.toString(),
+              sku: item.product.sku || ''
+            }
+          },
+          unit_amount: Math.round(currentPrice * 100), // Convert to cents
+        },
+        quantity: item.quantity,
+      });
+    }
 
     const totalItems = cart.items.reduce((sum, item) => sum + item.quantity, 0);
     const hasImported = cart.items.some(item => item.product?.isImported);
 
+    // Calculate shipping and tax server-side
     const shipping = calculateShipping(address.state, subtotal, totalItems, hasImported);
     const shippingCost = shipping.cost;
     const tax = calculateTax(address.state, subtotal);
     const total = subtotal + shippingCost + tax;
-
-    // Create line items for Stripe
-    const lineItems = cart.items.map(item => ({
-      price_data: {
-        currency: 'usd',
-        product_data: {
-          name: item.product.name,
-          description: item.product.description?.substring(0, 100) || '',
-          images: item.product.imageUrl ? [item.product.imageUrl] : [],
-        },
-        unit_amount: Math.round(parseFloat(item.priceAtAdd) * 100), // Convert to cents
-      },
-      quantity: item.quantity,
-    }));
 
     // Add shipping as a line item
     if (shippingCost > 0) {
@@ -97,7 +181,7 @@ const createCheckoutSession = async (req, res) => {
       });
     }
 
-    // Create Stripe Checkout Session
+    // Create Stripe Checkout Session with idempotency key
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       line_items: lineItems,
@@ -113,22 +197,36 @@ const createCheckoutSession = async (req, res) => {
         subtotal: subtotal.toFixed(2),
         shipping: shippingCost.toFixed(2),
         tax: tax.toFixed(2),
-        total: total.toFixed(2)
+        total: total.toFixed(2),
+        idempotencyKey // Store for verification
       }
+    }, {
+      idempotencyKey: idempotencyKey // Stripe-level idempotency
     });
 
-    res.json({
+    const result = {
       success: true,
       sessionId: session.id,
       url: session.url
+    };
+
+    // Cache result for idempotency
+    storeIdempotency(idempotencyKey, result);
+
+    logger.info('Checkout session created', {
+      userId,
+      sessionId: session.id,
+      total,
+      itemCount: cart.items.length
     });
 
+    res.json(result);
+
   } catch (error) {
-    console.error('Checkout session error:', error);
+    logger.logError('createCheckoutSession', error, { userId: req.user?.userId });
     res.status(500).json({
       success: false,
-      message: 'Failed to create checkout session',
-      error: error.message
+      message: 'Failed to create checkout session. Please try again.'
     });
   }
 };
@@ -144,7 +242,7 @@ const handleWebhook = async (req, res) => {
     // Verify webhook signature
     event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
   } catch (err) {
-    console.error('Webhook signature verification failed:', err.message);
+    logger.error('Webhook signature verification failed', { error: err.message });
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
@@ -159,23 +257,40 @@ const handleWebhook = async (req, res) => {
       break;
 
     default:
-      console.log(`Unhandled event type: ${event.type}`);
+      logger.debug('Unhandled webhook event type', { type: event.type });
   }
 
   res.json({ received: true });
 };
 
-// Handle Successful Payment
+// Handle Successful Payment - with idempotency and transactions
 const handleSuccessfulPayment = async (session) => {
+  const transaction = await sequelize.transaction();
+
   try {
-    console.log('🔔 Webhook received: checkout.session.completed');
-    console.log('📦 Session ID:', session.id);
-    console.log('💰 Amount:', session.amount_total / 100, 'USD');
+    logger.info('Webhook received: checkout.session.completed', {
+      sessionId: session.id,
+      amount: session.amount_total / 100
+    });
+
+    // IDEMPOTENCY: Check if order already exists for this session
+    const existingOrder = await Order.findOne({
+      where: { stripeSessionId: session.id },
+      transaction
+    });
+
+    if (existingOrder) {
+      logger.info('Order already exists for session (idempotent)', {
+        sessionId: session.id,
+        orderId: existingOrder.id
+      });
+      await transaction.commit();
+      return;
+    }
 
     const { userId, addressId, cartId, subtotal, shipping, tax, total } = session.metadata;
-    console.log('📋 Metadata:', { userId, addressId, cartId, subtotal, shipping, tax, total });
 
-    // Get cart items
+    // Get cart items with CURRENT database prices
     const cart = await Cart.findOne({
       where: { id: cartId },
       include: [{
@@ -185,30 +300,54 @@ const handleSuccessfulPayment = async (session) => {
           model: Product,
           as: 'product'
         }]
-      }]
+      }],
+      transaction
     });
 
-    if (!cart) {
-      console.error('❌ Cart not found for session:', session.id);
+    if (!cart || !cart.items || cart.items.length === 0) {
+      logger.warn('Cart not found or empty for webhook', { sessionId: session.id, cartId });
+      await transaction.commit();
       return;
     }
-
-    console.log('✅ Cart found with', cart.items.length, 'items');
 
     // Get address
-    const address = await Address.findByPk(addressId);
+    const address = await Address.findByPk(addressId, { transaction });
 
     if (!address) {
-      console.error('❌ Address not found:', addressId);
+      logger.error('Address not found for webhook', { addressId });
+      await transaction.rollback();
       return;
     }
 
-    console.log('✅ Address found:', address.city, address.state);
+    // Reserve stock for all items (with locking to prevent overselling)
+    const stockReservations = [];
+    for (const item of cart.items) {
+      const reservation = await StockService.reserveStock(
+        item.productId,
+        item.quantity,
+        transaction
+      );
+      if (!reservation.success) {
+        logger.error('Stock reservation failed during payment', {
+          productId: item.productId,
+          quantity: item.quantity,
+          message: reservation.message
+        });
+        await transaction.rollback();
+        // Note: Payment already processed - would need manual refund
+        return;
+      }
+      stockReservations.push(reservation);
+    }
 
-    // Generate order number
-    const orderNumber = `TH-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 100000)).padStart(5, '0')}`;
-
-    console.log('📝 Creating order:', orderNumber);
+    // Generate unique order number
+    const lastOrder = await Order.findOne({
+      order: [['id', 'DESC']],
+      attributes: ['id'],
+      transaction
+    });
+    const nextId = lastOrder ? lastOrder.id + 1 : 1;
+    const orderNumber = `TH-${new Date().getFullYear()}-${String(nextId).padStart(5, '0')}`;
 
     // Create order
     const order = await Order.create({
@@ -233,50 +372,58 @@ const handleSuccessfulPayment = async (session) => {
         zipCode: address.zipCode,
         phoneNumber: address.phoneNumber
       })
-    });
+    }, { transaction });
 
-    console.log('✅ Order created:', order.id);
-
-    // Create order items
+    // Create order items using CURRENT database prices
     for (const item of cart.items) {
+      const currentPrice = parseFloat(item.product.price);
       await OrderItem.create({
         orderId: order.id,
         productId: item.productId,
         quantity: item.quantity,
-        priceAtPurchase: parseFloat(item.priceAtAdd),
+        priceAtPurchase: currentPrice,
         productName: item.product.name,
-        productImage: item.product.imageUrl
-      });
+        productSku: item.product.sku,
+        productImage: item.product.imageUrl,
+        totalPrice: currentPrice * item.quantity
+      }, { transaction });
     }
 
-    console.log('✅ Order items created');
-
     // Clear the cart
-    await CartItem.destroy({ where: { cartId: cart.id } });
+    await CartItem.destroy({ where: { cartId: cart.id }, transaction });
 
-    console.log('✅ Cart cleared');
-    console.log('🎉 Order processing complete! Order #' + order.orderNumber);
+    await transaction.commit();
+
+    logger.info('Order created from webhook', {
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      total: order.totalAmount
+    });
 
   } catch (error) {
-    console.error('❌ Error handling successful payment:', error);
-    console.error('Error stack:', error.stack);
+    await transaction.rollback();
+    logger.logError('handleSuccessfulPayment', error, { sessionId: session.id });
   }
 };
 
 // Handle Failed Payment
 const handleFailedPayment = async (paymentIntent) => {
-  console.log('Payment failed:', paymentIntent.id);
+  logger.warn('Payment failed', { paymentIntentId: paymentIntent.id });
   // TODO: Send failure notification email
 };
 
 // Verify Payment Session (called from frontend after redirect)
+// This is a backup order creation in case webhook didn't fire
 const verifySession = async (req, res) => {
+  const transaction = await sequelize.transaction();
+
   try {
     const { sessionId } = req.params;
 
     const session = await stripe.checkout.sessions.retrieve(sessionId);
 
     if (!session) {
+      await transaction.rollback();
       return res.status(404).json({
         success: false,
         message: 'Session not found'
@@ -284,14 +431,12 @@ const verifySession = async (req, res) => {
     }
 
     // Check if payment was successful
-    // In test mode, Stripe doesn't actually process payments, so status might be 'unpaid'
-    // We accept both 'paid' and 'unpaid' (for test mode) as successful
     const isTestMode = session.id.startsWith('cs_test_');
     const isPaymentSuccessful = session.payment_status === 'paid' ||
                                  (isTestMode && session.payment_status === 'unpaid' && session.status === 'complete');
 
     if (!isPaymentSuccessful) {
-      // Payment was cancelled or failed - don't create order
+      await transaction.rollback();
       return res.json({
         success: false,
         message: 'Payment was not completed',
@@ -306,17 +451,160 @@ const verifySession = async (req, res) => {
       });
     }
 
-    console.log('✅ Payment verified:', {
+    logger.info('Payment verified', {
       sessionId: session.id,
       paymentStatus: session.payment_status,
-      sessionStatus: session.status,
-      isTestMode,
-      isPaymentSuccessful
+      isTestMode
     });
 
-    // Find existing order
+    // IDEMPOTENCY: Find existing order first
     let order = await Order.findOne({
       where: { stripeSessionId: sessionId },
+      include: [
+        {
+          model: OrderItem,
+          as: 'items',
+          include: [{
+            model: Product,
+            as: 'product'
+          }]
+        },
+        {
+          model: Address,
+          as: 'address'
+        }
+      ],
+      transaction
+    });
+
+    // If order already exists, return it (idempotent)
+    if (order) {
+      await transaction.commit();
+      logger.info('Returning existing order (idempotent)', { orderId: order.id });
+      return res.json({
+        success: true,
+        session: {
+          id: session.id,
+          paymentStatus: session.payment_status,
+          customerEmail: session.customer_email,
+          amountTotal: session.amount_total / 100
+        },
+        order: order
+      });
+    }
+
+    // Order doesn't exist - create it (backup for webhook)
+    const { userId, addressId, cartId, subtotal, shipping, tax, total } = session.metadata;
+
+    // Get address
+    const address = await Address.findByPk(addressId, { transaction });
+    if (!address) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'Address not found'
+      });
+    }
+
+    // Get cart with CURRENT database prices
+    const cart = await Cart.findOne({
+      where: { id: parseInt(cartId) },
+      include: [{
+        model: CartItem,
+        as: 'items',
+        include: [{
+          model: Product,
+          as: 'product'
+        }]
+      }],
+      transaction
+    });
+
+    // Generate unique order number
+    const lastOrder = await Order.findOne({
+      order: [['id', 'DESC']],
+      attributes: ['id'],
+      transaction
+    });
+    const nextId = lastOrder ? lastOrder.id + 1 : 1;
+    const orderNumber = `TH-${new Date().getFullYear()}-${String(nextId).padStart(5, '0')}`;
+
+    // Create order
+    order = await Order.create({
+      orderNumber,
+      userId: parseInt(userId),
+      addressId: parseInt(addressId),
+      subtotal: parseFloat(subtotal),
+      shippingCost: parseFloat(shipping),
+      taxAmount: parseFloat(tax),
+      totalAmount: parseFloat(total),
+      status: 'pending',
+      paymentStatus: 'paid',
+      paymentMethod: 'card',
+      stripeSessionId: session.id,
+      stripePaymentIntentId: session.payment_intent,
+      shippingAddress: JSON.stringify({
+        fullName: address.fullName,
+        addressLine1: address.addressLine1,
+        addressLine2: address.addressLine2,
+        city: address.city,
+        state: address.state,
+        zipCode: address.zipCode,
+        phoneNumber: address.phoneNumber
+      })
+    }, { transaction });
+
+    if (cart && cart.items && cart.items.length > 0) {
+      // Reserve stock and create order items using CURRENT database prices
+      for (const item of cart.items) {
+        // Reserve stock
+        const reservation = await StockService.reserveStock(
+          item.productId,
+          item.quantity,
+          transaction
+        );
+
+        if (!reservation.success) {
+          await transaction.rollback();
+          logger.warn('Stock reservation failed in verifySession', {
+            productId: item.productId,
+            message: reservation.message
+          });
+          // Order already paid - return partial success
+          return res.json({
+            success: true,
+            message: 'Order created but some items may be out of stock',
+            session: {
+              id: session.id,
+              paymentStatus: session.payment_status,
+              customerEmail: session.customer_email,
+              amountTotal: session.amount_total / 100
+            },
+            order: null
+          });
+        }
+
+        // Use CURRENT database price
+        const currentPrice = parseFloat(item.product.price);
+        await OrderItem.create({
+          orderId: order.id,
+          productId: item.productId,
+          quantity: item.quantity,
+          priceAtPurchase: currentPrice,
+          productName: item.product.name,
+          productSku: item.product.sku,
+          totalPrice: currentPrice * item.quantity
+        }, { transaction });
+      }
+
+      // Clear the cart
+      await CartItem.destroy({ where: { cartId: parseInt(cartId) }, transaction });
+    }
+
+    await transaction.commit();
+
+    // Reload order with associations
+    await order.reload({
       include: [
         {
           model: OrderItem,
@@ -333,101 +621,7 @@ const verifySession = async (req, res) => {
       ]
     });
 
-    // If order doesn't exist and payment is successful, create it
-    if (!order) {
-      const { userId, addressId, cartId, subtotal, shipping, tax, total } = session.metadata;
-
-      // Get address for shipping info
-      const address = await Address.findByPk(addressId);
-
-      // Generate unique order number based on last order ID
-      const lastOrder = await Order.findOne({
-        order: [['id', 'DESC']],
-        attributes: ['id']
-      });
-      const nextId = lastOrder ? lastOrder.id + 1 : 1;
-      const orderNumber = `TH-${new Date().getFullYear()}-${String(nextId).padStart(5, '0')}`;
-
-      // Create order
-      order = await Order.create({
-        orderNumber,
-        userId: parseInt(userId),
-        addressId: parseInt(addressId),
-        subtotal: parseFloat(subtotal),
-        shippingCost: parseFloat(shipping),
-        taxAmount: parseFloat(tax),
-        totalAmount: parseFloat(total),
-        status: 'pending',
-        paymentStatus: 'paid',
-        paymentMethod: 'card',
-        stripeSessionId: session.id,
-        stripePaymentIntentId: session.payment_intent,
-        shippingAddress: JSON.stringify({
-          fullName: address.fullName,
-          addressLine1: address.addressLine1,
-          addressLine2: address.addressLine2,
-          city: address.city,
-          state: address.state,
-          zipCode: address.zipCode,
-          phoneNumber: address.phoneNumber
-        })
-      });
-
-      console.log('📝 Order created after successful payment:', order.id);
-
-      // Get cart items to create order items
-      const cart = await Cart.findOne({
-        where: { id: parseInt(cartId) },
-        include: [{
-          model: CartItem,
-          as: 'items',
-          include: [{
-            model: Product,
-            as: 'product'
-          }]
-        }]
-      });
-
-      if (cart && cart.items) {
-        // Create order items
-        for (const item of cart.items) {
-          const itemTotal = parseFloat(item.priceAtAdd) * item.quantity;
-          await OrderItem.create({
-            orderId: order.id,
-            productId: item.productId,
-            quantity: item.quantity,
-            priceAtPurchase: parseFloat(item.priceAtAdd),
-            productName: item.product.name,
-            productSku: item.product.sku,
-            totalPrice: itemTotal
-          });
-        }
-
-        console.log('✅ Order items created for order:', order.id);
-
-        // Clear the cart
-        await CartItem.destroy({ where: { cartId: parseInt(cartId) } });
-        console.log('✅ Cart cleared after successful payment');
-      }
-
-      // Reload order to include items and address
-      await order.reload({
-        include: [
-          {
-            model: OrderItem,
-            as: 'items',
-            include: [{
-              model: Product,
-              as: 'product'
-            }]
-          },
-          {
-            model: Address,
-            as: 'address'
-          }
-        ]
-      });
-    }
+    logger.info('Order created via verifySession', { orderId: order.id, orderNumber });
 
     res.json({
       success: true,
@@ -441,16 +635,16 @@ const verifySession = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Session verification error:', error);
+    await transaction.rollback();
+    logger.logError('verifySession', error, { sessionId: req.params.sessionId });
     res.status(500).json({
       success: false,
-      message: 'Failed to verify session',
-      error: error.message
+      message: 'Failed to verify session. Please contact support.'
     });
   }
 };
 
-// Request Refund
+// Request Refund - with idempotency
 const requestRefund = async (req, res) => {
   try {
     const { orderId } = req.params;
@@ -462,13 +656,23 @@ const requestRefund = async (req, res) => {
       where: {
         id: orderId,
         userId: userId
-      }
+      },
+      include: [{ model: OrderItem, as: 'items' }]
     });
 
     if (!order) {
       return res.status(404).json({
         success: false,
         message: 'Order not found'
+      });
+    }
+
+    // IDEMPOTENCY: Already refunded
+    if (order.paymentStatus === 'refunded') {
+      return res.json({
+        success: true,
+        message: 'Order has already been refunded',
+        refund: { status: 'already_refunded' }
       });
     }
 
@@ -479,14 +683,8 @@ const requestRefund = async (req, res) => {
       });
     }
 
-    if (order.paymentStatus === 'refunded') {
-      return res.status(400).json({
-        success: false,
-        message: 'Order has already been refunded'
-      });
-    }
-
-    // Create Stripe refund
+    // Create Stripe refund with idempotency key
+    const idempotencyKey = `refund-${orderId}-${userId}`;
     const refund = await stripe.refunds.create({
       payment_intent: order.stripePaymentIntentId,
       reason: 'requested_by_customer',
@@ -494,6 +692,8 @@ const requestRefund = async (req, res) => {
         orderId: order.id.toString(),
         reason: reason || 'Customer requested refund'
       }
+    }, {
+      idempotencyKey
     });
 
     // Update order status
@@ -503,7 +703,16 @@ const requestRefund = async (req, res) => {
       adminNotes: `Refund requested: ${reason || 'No reason provided'}\nRefund ID: ${refund.id}`
     });
 
-    console.log('💰 Refund created for order:', order.id, 'Refund ID:', refund.id);
+    // Release reserved stock
+    for (const item of order.items) {
+      await StockService.releaseReservedStock(item.productId, item.quantity);
+    }
+
+    logger.info('Refund processed', {
+      orderId: order.id,
+      refundId: refund.id,
+      amount: refund.amount / 100
+    });
 
     res.json({
       success: true,
@@ -516,11 +725,10 @@ const requestRefund = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Refund error:', error);
+    logger.logError('requestRefund', error, { orderId: req.params.orderId });
     res.status(500).json({
       success: false,
-      message: 'Failed to process refund',
-      error: error.message
+      message: 'Failed to process refund. Please contact support.'
     });
   }
 };

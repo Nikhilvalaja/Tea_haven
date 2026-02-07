@@ -12,12 +12,14 @@
 import React, { useState } from 'react';
 import { Link, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 
 const Login = () => {
   // ----------------------------------------
   // Hooks
   // ----------------------------------------
   const { login, loading, error, setError } = useAuth();
+  const { showSuccess } = useToast();
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
@@ -93,16 +95,38 @@ const Login = () => {
   const handleSubmit = async (e) => {
     // Prevent default form submission (page reload)
     e.preventDefault();
-    
+
     // Validate first
     if (!validateForm()) return;
-    
+
     // Attempt login
     const result = await login(formData.email, formData.password);
-    
+
     if (result.success) {
-      // Redirect to original destination or home
-      navigate(from, { replace: true });
+      const user = result.user;
+      const isAdminRole = ['super_admin', 'admin', 'manager'].includes(user?.role);
+
+      // Show toast notification with role info
+      const roleLabels = {
+        super_admin: 'Super Admin',
+        admin: 'Admin',
+        manager: 'Manager',
+        customer: ''
+      };
+      const roleLabel = roleLabels[user?.role] || '';
+      const welcomeMsg = roleLabel
+        ? `Welcome back, ${user.firstName}! (${roleLabel})`
+        : `Welcome back, ${user?.firstName || 'User'}!`;
+
+      showSuccess(welcomeMsg);
+
+      // Admin users go directly to admin panel
+      if (isAdminRole) {
+        navigate('/admin', { replace: true });
+      } else {
+        // Regular customers go to their intended destination or home
+        navigate(from, { replace: true });
+      }
     }
     // If login fails, error is set in AuthContext
   };

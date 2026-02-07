@@ -58,6 +58,25 @@ const Cart = () => {
   const subtotal = parseFloat(cartTotal);
   const estimatedTotal = shippingEstimate === 'FREE' ? subtotal : subtotal + parseFloat(shippingEstimate);
 
+  // Check stock availability for each item
+  const getItemStockStatus = (item) => {
+    const product = item.product;
+    if (!product) return { available: 0, isOutOfStock: true, isLowStock: false };
+
+    const availableStock = product.stockQuantity - (product.reservedStock || 0);
+    const isOutOfStock = availableStock <= 0;
+    const isLowStock = availableStock > 0 && availableStock < item.quantity;
+    const exceedsStock = item.quantity > availableStock;
+
+    return { available: availableStock, isOutOfStock, isLowStock, exceedsStock };
+  };
+
+  // Check if any items have stock issues
+  const hasStockIssues = cartItems.some(item => {
+    const status = getItemStockStatus(item);
+    return status.isOutOfStock || status.exceedsStock;
+  });
+
   // Show empty state only when we're sure cart is empty (not loading and cart data exists with 0 items)
   const isCartEmpty = cart && !loading && cartItems.length === 0;
 
@@ -98,70 +117,99 @@ const Cart = () => {
               </div>
             )}
 
+            {/* Stock Warning Banner */}
+            {hasStockIssues && (
+              <div className="stock-warning-banner">
+                <span className="warning-icon">⚠️</span>
+                <span>Some items in your cart have stock availability issues. Please review before checkout.</span>
+              </div>
+            )}
+
             {/* Cart Items */}
             <div className="cart-items-modern">
-              {cartItems.map(item => (
-                <div key={item.id} className="cart-item-modern">
-                  <div className="cart-item-image-modern">
-                    <div className="cart-placeholder-image">
-                      <span className="cart-emoji">🍵</span>
+              {cartItems.map(item => {
+                const stockStatus = getItemStockStatus(item);
+
+                return (
+                  <div key={item.id} className={`cart-item-modern ${stockStatus.isOutOfStock ? 'cart-item-out-of-stock' : ''}`}>
+                    <div className="cart-item-image-modern">
+                      <div className={`cart-placeholder-image ${stockStatus.isOutOfStock ? 'grayscale' : ''}`}>
+                        <span className="cart-emoji">🍵</span>
+                      </div>
+                      {stockStatus.isOutOfStock && (
+                        <span className="cart-item-stock-badge out-of-stock">Out of Stock</span>
+                      )}
+                    </div>
+
+                    <div className="cart-item-info-modern">
+                      <h3 className="cart-item-name">{item.product?.name}</h3>
+                      {item.product?.isImported && (
+                        <span className="imported-label-small">Imported</span>
+                      )}
+                      <p className="cart-item-price">${parseFloat(item.priceAtAdd).toFixed(2)} each</p>
+                      {item.product?.packetSize && (
+                        <p className="cart-item-size">{item.product.packetSize}</p>
+                      )}
+
+                      {/* Stock status message */}
+                      {stockStatus.isOutOfStock && (
+                        <p className="cart-stock-warning">This item is no longer available</p>
+                      )}
+                      {stockStatus.exceedsStock && !stockStatus.isOutOfStock && (
+                        <p className="cart-stock-warning">Only {stockStatus.available} available (you have {item.quantity})</p>
+                      )}
+                      {stockStatus.isLowStock && !stockStatus.exceedsStock && (
+                        <p className="cart-stock-low">Only {stockStatus.available} left in stock</p>
+                      )}
+                    </div>
+
+                    <div className="cart-item-quantity-modern">
+                      <label className="qty-label-modern">Qty:</label>
+                      <div className="quantity-controls-modern">
+                        <button
+                          className="qty-btn-modern"
+                          onClick={() => handleQuantityChange(item.id, item.quantity - 1)}
+                          disabled={loading || item.quantity <= 1 || stockStatus.isOutOfStock}
+                        >
+                          −
+                        </button>
+                        <input
+                          type="number"
+                          className={`qty-input-modern ${stockStatus.exceedsStock ? 'qty-exceeds-stock' : ''}`}
+                          value={item.quantity}
+                          onChange={(e) => {
+                            const val = parseInt(e.target.value) || 1;
+                            handleQuantityChange(item.id, val);
+                          }}
+                          min="1"
+                          max={stockStatus.available || 1}
+                          disabled={loading || stockStatus.isOutOfStock}
+                        />
+                        <button
+                          className="qty-btn-modern"
+                          onClick={() => handleQuantityChange(item.id, item.quantity + 1)}
+                          disabled={loading || stockStatus.isOutOfStock || item.quantity >= stockStatus.available}
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="cart-item-total-modern">
+                      <p className={`item-total-price ${stockStatus.isOutOfStock ? 'price-strikethrough' : ''}`}>
+                        ${(parseFloat(item.priceAtAdd) * item.quantity).toFixed(2)}
+                      </p>
+                      <button
+                        className="btn-remove-modern"
+                        onClick={() => handleRemove(item.id)}
+                        disabled={loading}
+                      >
+                        {stockStatus.isOutOfStock ? 'Remove' : 'Remove'}
+                      </button>
                     </div>
                   </div>
-
-                  <div className="cart-item-info-modern">
-                    <h3 className="cart-item-name">{item.product?.name}</h3>
-                    {item.product?.isImported && (
-                      <span className="imported-label-small">Imported</span>
-                    )}
-                    <p className="cart-item-price">${parseFloat(item.priceAtAdd).toFixed(2)} each</p>
-                    {item.product?.packetSize && (
-                      <p className="cart-item-size">{item.product.packetSize}</p>
-                    )}
-                  </div>
-
-                  <div className="cart-item-quantity-modern">
-                    <label className="qty-label-modern">Qty:</label>
-                    <div className="quantity-controls-modern">
-                      <button
-                        className="qty-btn-modern"
-                        onClick={() => handleQuantityChange(item.id, item.quantity - 1)}
-                        disabled={loading || item.quantity <= 1}
-                      >
-                        −
-                      </button>
-                      <input
-                        type="number"
-                        className="qty-input-modern"
-                        value={item.quantity}
-                        onChange={(e) => {
-                          const val = parseInt(e.target.value) || 1;
-                          handleQuantityChange(item.id, val);
-                        }}
-                        min="1"
-                        disabled={loading}
-                      />
-                      <button
-                        className="qty-btn-modern"
-                        onClick={() => handleQuantityChange(item.id, item.quantity + 1)}
-                        disabled={loading}
-                      >
-                        +
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="cart-item-total-modern">
-                    <p className="item-total-price">${(parseFloat(item.priceAtAdd) * item.quantity).toFixed(2)}</p>
-                    <button
-                      className="btn-remove-modern"
-                      onClick={() => handleRemove(item.id)}
-                      disabled={loading}
-                    >
-                      Remove
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* Order Summary */}
@@ -196,12 +244,18 @@ const Cart = () => {
               </div>
 
               <button
-                className="checkout-btn-modern"
+                className={`checkout-btn-modern ${hasStockIssues ? 'btn-disabled-warning' : ''}`}
                 onClick={handleCheckout}
-                disabled={loading}
+                disabled={loading || hasStockIssues}
               >
-                Proceed to Checkout
+                {hasStockIssues ? 'Fix Stock Issues to Checkout' : 'Proceed to Checkout'}
               </button>
+
+              {hasStockIssues && (
+                <p className="checkout-warning-text">
+                  Please remove or adjust out-of-stock items before checkout
+                </p>
+              )}
 
               <Link to="/products" className="continue-shopping-modern">
                 ← Continue Shopping

@@ -9,6 +9,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const { sequelize } = require('./config/database');
+const { logger, httpLogger } = require('./utils/logger');
 
 // Import route modules
 const authRoutes = require('./routes/authRoutes');
@@ -17,6 +18,10 @@ const cartRoutes = require('./routes/cartRoutes');
 const addressRoutes = require('./routes/addressRoutes');
 const orderRoutes = require('./routes/orderRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
+const inventoryRoutes = require('./routes/inventoryRoutes');
+const adminRoutes = require('./routes/adminRoutes');
+const reviewRoutes = require('./routes/reviewRoutes');
+const wishlistRoutes = require('./routes/wishlistRoutes');
 
 // ============================================
 // SERVER CONFIGURATION
@@ -40,13 +45,8 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Request logging middleware (development only)
-if (process.env.NODE_ENV === 'development') {
-  app.use((req, res, next) => {
-    console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
-    next();
-  });
-}
+// HTTP request logging (Winston + Morgan)
+app.use(httpLogger);
 
 // ============================================
 // API ROUTES
@@ -71,6 +71,10 @@ app.use('/api/cart', cartRoutes);
 app.use('/api/addresses', addressRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/payment', paymentRoutes);
+app.use('/api/inventory', inventoryRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/reviews', reviewRoutes);
+app.use('/api/wishlist', wishlistRoutes);
 
 // Root endpoint
 app.get('/', (req, res) => {
@@ -84,6 +88,7 @@ app.get('/', (req, res) => {
       cart: '/api/cart',
       addresses: '/api/addresses',
       orders: '/api/orders',
+      wishlist: '/api/wishlist',
       health: '/api/health'
     }
   });
@@ -93,25 +98,13 @@ app.get('/', (req, res) => {
 // ERROR HANDLING
 // ============================================
 
+const { notFoundHandler, globalErrorHandler } = require('./middleware/errorHandler');
+
 // 404 handler - Route not found
-app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    message: 'Route not found',
-    path: req.path
-  });
-});
+app.use(notFoundHandler);
 
-// Global error handler
-app.use((err, req, res, next) => {
-  console.error('Server Error:', err);
-
-  res.status(err.status || 500).json({
-    success: false,
-    message: err.message || 'Internal server error',
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
-  });
-});
+// Global error handler - SECURITY: Never leaks sensitive error details
+app.use(globalErrorHandler);
 
 // ============================================
 // DATABASE CONNECTION & SERVER STARTUP
@@ -120,14 +113,15 @@ app.use((err, req, res, next) => {
 const startServer = async () => {
   try {
     // Test database connection
-    console.log('\n🔌 Connecting to database...');
+    logger.info('Connecting to database...');
     await sequelize.authenticate();
-    console.log('✅ Database connected successfully');
+    logger.info('Database connected successfully');
 
     // Sync models (creates tables if they don't exist)
-    console.log('\n🔄 Syncing database models...');
-    await sequelize.sync({ alter: false }); // Use { alter: true } to update schema
-    console.log('✅ Database models synced');
+    logger.info('Syncing database models...');
+    // Disable alter mode to avoid deadlocks and FK constraint issues during development restarts
+    await sequelize.sync(); // Just create tables if missing, don't alter
+    logger.info('Database models synced');
 
     // DEVELOPMENT ONLY: Auto-confirm orders after 1 hour
     if (process.env.NODE_ENV !== 'production') {
@@ -150,53 +144,40 @@ const startServer = async () => {
           if (ordersToConfirm.length > 0) {
             for (const order of ordersToConfirm) {
               await order.update({ status: 'confirmed' });
-              console.log(`✅ Auto-confirmed order ${order.orderNumber} (dev mode)`);
+              logger.info(`Auto-confirmed order ${order.orderNumber} (dev mode)`);
             }
           }
         } catch (err) {
-          console.error('❌ Auto-confirm error:', err.message);
+          logger.error('Auto-confirm error', { error: err.message });
         }
       }, 5 * 60 * 1000); // Check every 5 minutes
 
-      console.log('⚙️  Development mode: Auto-confirm enabled (1 hour)');
+      logger.info('Development mode: Auto-confirm enabled (1 hour)');
     }
 
     // Start Express server
     app.listen(PORT, () => {
-      console.log('\n' + '='.repeat(50));
-      console.log('🍵  TEAHAVEN E-COMMERCE API SERVER');
-      console.log('='.repeat(50));
-      console.log(`🚀 Server running on: http://localhost:${PORT}`);
-      console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-      console.log(`🔗 Frontend URL: ${FRONTEND_URL}`);
-      console.log(`📡 Database: ${process.env.DB_NAME || 'teahaven'}@${process.env.DB_HOST || 'localhost'}`);
-      console.log('='.repeat(50));
-      console.log('\n📋 Available endpoints:');
-      console.log('   POST   /api/auth/register      - Register new user');
-      console.log('   POST   /api/auth/login         - Login user');
-      console.log('   GET    /api/auth/verify        - Verify JWT token');
-      console.log('   GET    /api/products           - Get all products');
-      console.log('   GET    /api/products/:id       - Get product by ID');
-      console.log('   GET    /api/cart               - Get user cart');
-      console.log('   POST   /api/cart               - Add item to cart');
-      console.log('   GET    /api/addresses          - Get user addresses');
-      console.log('   POST   /api/addresses          - Create new address');
-      console.log('   GET    /api/orders             - Get user orders');
-      console.log('   POST   /api/orders             - Create new order');
-      console.log('   GET    /api/health             - Health check');
-      console.log('='.repeat(50) + '\n');
-      console.log('✨ Server is ready to accept requests!\n');
+      logger.info('='.repeat(50));
+      logger.info('TEAHAVEN E-COMMERCE API SERVER');
+      logger.info('='.repeat(50));
+      logger.info(`Server running on http://localhost:${PORT}`);
+      logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
+      logger.info(`Frontend URL: ${FRONTEND_URL}`);
+      logger.info(`Database: ${process.env.DB_NAME || 'teahaven'}@${process.env.DB_HOST || 'localhost'}`);
+      logger.info('Server is ready to accept requests!');
     });
 
   } catch (error) {
-    console.error('\n❌ Failed to start server:');
-    console.error('Error:', error.message);
-    console.error('Stack:', error.stack);
-    console.error('\nPlease check:');
-    console.error('1. MySQL server is running');
-    console.error('2. Database credentials in .env are correct');
-    console.error('3. Database exists (or set DB_CREATE=true)');
-    console.error('4. Network connection to database');
+    logger.error('Failed to start server', {
+      message: error.message,
+      stack: error.stack,
+      hints: [
+        'Check if MySQL server is running',
+        'Verify database credentials in .env',
+        'Ensure database exists',
+        'Check network connection to database'
+      ]
+    });
     process.exit(1);
   }
 };
@@ -206,17 +187,15 @@ const startServer = async () => {
 // ============================================
 
 const gracefulShutdown = async (signal) => {
-  console.log(`\n\n${signal} received. Starting graceful shutdown...`);
+  logger.info(`${signal} received. Starting graceful shutdown...`);
 
   try {
-    // Close database connections
     await sequelize.close();
-    console.log('✅ Database connections closed');
-
-    console.log('✅ Server shut down gracefully');
+    logger.info('Database connections closed');
+    logger.info('Server shut down gracefully');
     process.exit(0);
   } catch (error) {
-    console.error('❌ Error during shutdown:', error);
+    logger.error('Error during shutdown', { error: error.message });
     process.exit(1);
   }
 };
@@ -227,7 +206,7 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 // Handle unhandled promise rejections
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+  logger.error('Unhandled Rejection', { reason: String(reason), promise: String(promise) });
   // Don't exit in development
   if (process.env.NODE_ENV === 'production') {
     gracefulShutdown('UNHANDLED_REJECTION');

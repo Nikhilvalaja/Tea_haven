@@ -18,6 +18,10 @@ const ProductCard = ({ product }) => {
       return;
     }
 
+    if (availableStock <= 0) {
+      return;
+    }
+
     setAdding(true);
     const success = await addToCart(product.id, 1);
     setAdding(false);
@@ -28,20 +32,27 @@ const ProductCard = ({ product }) => {
   };
 
   const availableStock = product.stockQuantity - (product.reservedStock || 0);
+  const isOutOfStock = availableStock <= 0;
+  const isLowStock = availableStock > 0 && availableStock <= 10;
 
   return (
-    <div className="product-card-modern">
+    <div className={`product-card-modern ${isOutOfStock ? 'out-of-stock' : ''}`}>
       <Link to={`/products/${product.id}`} className="product-card-link">
         {/* Product Image */}
         <div className="product-image-modern">
-          <div className="product-image-placeholder-modern">
+          <div className={`product-image-placeholder-modern ${isOutOfStock ? 'grayscale' : ''}`}>
             <span className="product-emoji-modern">🍵</span>
           </div>
-          {product.isImported && (
+          {isOutOfStock && (
+            <div className="out-of-stock-overlay">
+              <span className="out-of-stock-badge">Out of Stock</span>
+            </div>
+          )}
+          {product.isImported && !isOutOfStock && (
             <span className="imported-badge-modern">Imported</span>
           )}
-          {availableStock < 10 && availableStock > 0 && (
-            <span className="stock-badge-low">Low Stock</span>
+          {isLowStock && (
+            <span className="stock-badge-low">Only {availableStock} left</span>
           )}
         </div>
 
@@ -54,7 +65,7 @@ const ProductCard = ({ product }) => {
             <span className="rating-count-modern">(24)</span>
           </div>
 
-          <div className="product-price-modern">
+          <div className={`product-price-modern ${isOutOfStock ? 'price-out-of-stock' : ''}`}>
             <span className="price-amount">${parseFloat(product.price).toFixed(2)}</span>
             <span className="price-size"> / {product.packetSize}</span>
           </div>
@@ -68,11 +79,11 @@ const ProductCard = ({ product }) => {
       {/* Action Buttons */}
       <div className="product-card-actions">
         <button
-          className="btn-add-cart-modern"
+          className={`btn-add-cart-modern ${isOutOfStock ? 'btn-disabled' : ''}`}
           onClick={handleAddToCart}
-          disabled={availableStock === 0 || adding}
+          disabled={isOutOfStock || adding}
         >
-          {availableStock === 0 ? 'Out of Stock' : (adding ? 'Adding...' : 'Add to Cart')}
+          {isOutOfStock ? 'Out of Stock' : (adding ? 'Adding...' : 'Add to Cart')}
         </button>
         <Link to={`/products/${product.id}`} className="btn-view-detail-modern">
           View Details

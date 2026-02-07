@@ -20,7 +20,7 @@ const getAddresses = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch addresses',
-      error: error.message
+      error: undefined
     });
   }
 };
@@ -51,7 +51,7 @@ const getAddress = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch address',
-      error: error.message
+      error: undefined
     });
   }
 };
@@ -59,21 +59,14 @@ const getAddress = async (req, res) => {
 // Create new address
 const createAddress = async (req, res) => {
   try {
-    console.log('\n=== CREATE ADDRESS REQUEST ===');
-    console.log('User from token:', req.user);
-    console.log('Request body:', JSON.stringify(req.body, null, 2));
-
     const userId = req.user.userId;
 
     if (!userId) {
-      console.error('❌ No userId found!');
       return res.status(400).json({
         success: false,
         message: 'User ID not found in token'
       });
     }
-
-    console.log('✓ User ID:', userId);
 
     const {
       fullName,
@@ -93,48 +86,19 @@ const createAddress = async (req, res) => {
 
     // Validate required fields
     if (!fullName || !phoneNumber || !addressLine1 || !city || !state || !zipCode) {
-      console.error('❌ Missing required fields');
       return res.status(400).json({
         success: false,
-        message: 'Missing required fields',
-        missing: {
-          fullName: !fullName,
-          phoneNumber: !phoneNumber,
-          addressLine1: !addressLine1,
-          city: !city,
-          state: !state,
-          zipCode: !zipCode
-        }
+        message: 'Missing required fields: name, phone, address, city, state, and zip code are required'
       });
     }
 
-    console.log('✓ All required fields present');
-
     // If this is set as default, unset other defaults
     if (isDefault) {
-      console.log('Setting as default, unsetting other defaults...');
       await Address.update(
         { isDefault: false },
         { where: { userId } }
       );
     }
-
-    console.log('Creating address with data:', {
-      userId,
-      fullName,
-      phoneNumber,
-      addressLine1,
-      addressLine2: addressLine2 || '(none)',
-      city,
-      state,
-      zipCode,
-      country,
-      latitude: latitude || '(none)',
-      longitude: longitude || '(none)',
-      placeId: placeId || '(none)',
-      isDefault,
-      addressType
-    });
 
     const address = await Address.create({
       userId,
@@ -153,27 +117,16 @@ const createAddress = async (req, res) => {
       addressType
     });
 
-    console.log('✅ Address created successfully!', address.id);
-    console.log('=== END ===\n');
-
     res.status(201).json({
       success: true,
       message: 'Address created successfully',
       data: address
     });
   } catch (error) {
-    console.error('\n❌ CREATE ADDRESS ERROR:');
-    console.error('Error name:', error.name);
-    console.error('Error message:', error.message);
-    console.error('Full error:', error);
-    console.error('Stack:', error.stack);
-    console.error('=== END ERROR ===\n');
-
+    console.error('Create address error:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to create address',
-      error: error.message,
-      errorType: error.name
+      message: 'Failed to create address. Please try again.'
     });
   }
 };
@@ -245,7 +198,7 @@ const updateAddress = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to update address',
-      error: error.message
+      error: undefined
     });
   }
 };
@@ -278,7 +231,7 @@ const deleteAddress = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to delete address',
-      error: error.message
+      error: undefined
     });
   }
 };
@@ -320,7 +273,7 @@ const setDefaultAddress = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to set default address',
-      error: error.message
+      error: undefined
     });
   }
 };

@@ -1,5 +1,8 @@
 require('dotenv').config();
 const { Sequelize } = require('sequelize');
+const { sequelizeLogger } = require('../utils/logger');
+
+const isDevelopment = process.env.NODE_ENV === 'development';
 
 const sequelize = new Sequelize(
   process.env.DB_NAME || 'teahaven',
@@ -9,7 +12,8 @@ const sequelize = new Sequelize(
     host: process.env.DB_HOST || 'localhost',
     port: process.env.DB_PORT || 3306,
     dialect: 'mysql',
-    logging: process.env.NODE_ENV === 'development' ? console.log : false,
+    logging: isDevelopment ? sequelizeLogger : false,
+    benchmark: isDevelopment, // Track query duration
     pool: {
       max: 10,
       min: 0,

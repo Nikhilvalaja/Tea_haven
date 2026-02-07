@@ -2,13 +2,16 @@ import React from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { CartProvider } from './context/CartContext';
+import { ToastProvider } from './context/ToastContext';
 
 // Components
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import ProtectedRoute from './components/ProtectedRoute';
+import AdminRoute from './components/AdminRoute';
+import AdminLayout from './components/AdminLayout';
 
-// Pages
+// Customer Pages
 import Home from './pages/Home';
 import Products from './pages/Products';
 import ProductDetail from './pages/ProductDetail';
@@ -22,79 +25,120 @@ import Orders from './pages/Orders';
 import OrderSuccess from './pages/OrderSuccess';
 import RefundRequest from './pages/RefundRequest';
 
+// Admin Pages
+import AdminLogin from './pages/admin/AdminLogin';
+import Dashboard from './pages/admin/Dashboard';
+import InventoryDashboard from './pages/admin/InventoryDashboard';
+import AdminProfile from './pages/admin/AdminProfile';
+import UserManagement from './pages/admin/UserManagement';
+import OrdersManagement from './pages/admin/OrdersManagement';
+import ReportsPage from './pages/admin/ReportsPage';
+import ProductManagement from './pages/admin/ProductManagement';
+import AdminProductDetail from './pages/admin/ProductDetail';
+
 import './App.css';
 import './ModernStyles.css';
+import './AdminStyles.css';
+
+// Customer Layout Component
+const CustomerLayout = ({ children }) => (
+  <div className="app">
+    <Navbar />
+    <main className="main-content">
+      {children}
+    </main>
+    <Footer />
+  </div>
+);
 
 function App() {
   return (
     <AuthProvider>
       <CartProvider>
-        <BrowserRouter>
-        <div className="app">
-          <Navbar />
-          
-          <main className="main-content">
+        <ToastProvider>
+          <BrowserRouter>
             <Routes>
-              <Route path="/" element={<Home />} />
-              <Route path="/products" element={<Products />} />
-              <Route path="/products/:id" element={<ProductDetail />} />
-              <Route path="/login" element={<Login />} />
-              <Route path="/register" element={<Register />} />
-              
+              {/* Customer Routes - with Navbar and Footer */}
+              <Route path="/" element={<CustomerLayout><Home /></CustomerLayout>} />
+              <Route path="/products" element={<CustomerLayout><Products /></CustomerLayout>} />
+              <Route path="/products/:id" element={<CustomerLayout><ProductDetail /></CustomerLayout>} />
+              <Route path="/login" element={<CustomerLayout><Login /></CustomerLayout>} />
+              <Route path="/register" element={<CustomerLayout><Register /></CustomerLayout>} />
+
               <Route path="/profile" element={
-                <ProtectedRoute>
-                  <Profile />
-                </ProtectedRoute>
+                <CustomerLayout>
+                  <ProtectedRoute><Profile /></ProtectedRoute>
+                </CustomerLayout>
               } />
-              
+
               <Route path="/cart" element={
-                <ProtectedRoute>
-                  <Cart />
-                </ProtectedRoute>
+                <CustomerLayout>
+                  <ProtectedRoute><Cart /></ProtectedRoute>
+                </CustomerLayout>
               } />
 
               <Route path="/addresses" element={
-                <ProtectedRoute>
-                  <Addresses />
-                </ProtectedRoute>
+                <CustomerLayout>
+                  <ProtectedRoute><Addresses /></ProtectedRoute>
+                </CustomerLayout>
               } />
 
               <Route path="/checkout" element={
-                <ProtectedRoute>
-                  <Checkout />
-                </ProtectedRoute>
+                <CustomerLayout>
+                  <ProtectedRoute><Checkout /></ProtectedRoute>
+                </CustomerLayout>
               } />
 
               <Route path="/orders" element={
-                <ProtectedRoute>
-                  <Orders />
-                </ProtectedRoute>
+                <CustomerLayout>
+                  <ProtectedRoute><Orders /></ProtectedRoute>
+                </CustomerLayout>
               } />
 
               <Route path="/orders/:orderId/refund" element={
-                <ProtectedRoute>
-                  <RefundRequest />
-                </ProtectedRoute>
+                <CustomerLayout>
+                  <ProtectedRoute><RefundRequest /></ProtectedRoute>
+                </CustomerLayout>
               } />
 
               <Route path="/order-success" element={
-                <ProtectedRoute>
-                  <OrderSuccess />
-                </ProtectedRoute>
+                <CustomerLayout>
+                  <ProtectedRoute><OrderSuccess /></ProtectedRoute>
+                </CustomerLayout>
               } />
 
+              {/* Admin Login - Separate page */}
+              <Route path="/admin/login" element={<AdminLogin />} />
+
+              {/* Admin Routes - Separate Layout with Sidebar */}
+              <Route path="/admin" element={
+                <AdminRoute>
+                  <AdminLayout />
+                </AdminRoute>
+              }>
+                <Route index element={<Dashboard />} />
+                <Route path="inventory" element={<InventoryDashboard />} />
+                <Route path="products" element={<ProductManagement />} />
+                <Route path="products/:id" element={<AdminProductDetail />} />
+                <Route path="users" element={<UserManagement />} />
+                <Route path="profile" element={<AdminProfile />} />
+                <Route path="orders" element={<OrdersManagement />} />
+                <Route path="reports" element={<ReportsPage />} />
+                <Route path="settings" element={<div className="admin-card"><h2>Settings</h2><p>Coming soon...</p></div>} />
+              </Route>
+
+              {/* 404 */}
               <Route path="*" element={
-                <div className="not-found-page">
-                  <h1>404</h1>
-                  <p>Page not found</p>
-                </div>
+                <CustomerLayout>
+                  <div className="not-found-page">
+                    <h1>404</h1>
+                    <p>Page not found</p>
+                  </div>
+                </CustomerLayout>
               } />
             </Routes>
-          </main>
-          
-          <Footer />
-        </div>
-      </BrowserRouter>
+          </BrowserRouter>
+        </ToastProvider>
       </CartProvider>
     </AuthProvider>
   );

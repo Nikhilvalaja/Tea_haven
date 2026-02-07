@@ -56,6 +56,8 @@ const ProductDetail = () => {
   }
 
   const availableStock = product.stockQuantity - (product.reservedStock || 0);
+  const isOutOfStock = availableStock <= 0;
+  const isLowStock = availableStock > 0 && availableStock <= 10;
   const estimatedDays = product.isImported ? `${product.shippingDays || 10}+ days` : '2-3 days';
 
   return (
@@ -64,10 +66,15 @@ const ProductDetail = () => {
         <div className="product-detail-grid">
           {/* Gallery Section */}
           <div className="product-gallery">
-            <div className="gallery-main">
-              <div className="product-image-placeholder">
+            <div className={`gallery-main ${isOutOfStock ? 'out-of-stock-gallery' : ''}`}>
+              <div className={`product-image-placeholder ${isOutOfStock ? 'grayscale' : ''}`}>
                 <span className="product-emoji-large">🍵</span>
               </div>
+              {isOutOfStock && (
+                <div className="out-of-stock-overlay-detail">
+                  <span>OUT OF STOCK</span>
+                </div>
+              )}
             </div>
             <div className="gallery-thumbnails">
               <div className="thumbnail active">
@@ -95,10 +102,24 @@ const ProductDetail = () => {
               <span className="rating-count">(127 reviews)</span>
             </div>
 
-            <div className="product-price-detail">
+            <div className={`product-price-detail ${isOutOfStock ? 'price-out-of-stock' : ''}`}>
               <span className="price-large">${parseFloat(product.price).toFixed(2)}</span>
               <span className="price-unit">/ {product.packetSize}</span>
             </div>
+
+            {/* Stock Status Banner */}
+            {isOutOfStock && (
+              <div className="stock-status-banner out-of-stock-banner">
+                <span className="stock-icon">⚠️</span>
+                <span>This item is currently out of stock</span>
+              </div>
+            )}
+            {isLowStock && (
+              <div className="stock-status-banner low-stock-banner">
+                <span className="stock-icon">⚡</span>
+                <span>Only {availableStock} left in stock - order soon!</span>
+              </div>
+            )}
 
             <div className="product-meta-detail">
               <div className="meta-row-detail">
@@ -119,9 +140,9 @@ const ProductDetail = () => {
                 </div>
               )}
               <div className="meta-row-detail">
-                <span className="meta-label-detail">Stock:</span>
-                <span className="meta-value-detail">
-                  {availableStock > 0 ? `${availableStock} available` : 'Out of stock'}
+                <span className="meta-label-detail">Availability:</span>
+                <span className={`meta-value-detail ${isOutOfStock ? 'text-out-of-stock' : isLowStock ? 'text-low-stock' : 'text-in-stock'}`}>
+                  {isOutOfStock ? 'Out of Stock' : isLowStock ? `Only ${availableStock} left` : 'In Stock'}
                 </span>
               </div>
             </div>
@@ -132,40 +153,49 @@ const ProductDetail = () => {
             </div>
 
             {/* Add to Cart Section */}
-            <div className="add-to-cart-section">
-              <div className="quantity-selector-detail">
-                <label>Quantity:</label>
-                <div className="quantity-controls-detail">
-                  <button
-                    onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                    className="qty-btn"
-                  >
-                    −
-                  </button>
-                  <input
-                    type="number"
-                    value={quantity}
-                    onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
-                    min="1"
-                    max={availableStock}
-                    className="qty-input"
-                  />
-                  <button
-                    onClick={() => setQuantity(Math.min(availableStock, quantity + 1))}
-                    className="qty-btn"
-                  >
-                    +
-                  </button>
+            <div className={`add-to-cart-section ${isOutOfStock ? 'disabled-section' : ''}`}>
+              {!isOutOfStock && (
+                <div className="quantity-selector-detail">
+                  <label>Quantity:</label>
+                  <div className="quantity-controls-detail">
+                    <button
+                      onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                      className="qty-btn"
+                      disabled={isOutOfStock}
+                    >
+                      −
+                    </button>
+                    <input
+                      type="number"
+                      value={quantity}
+                      onChange={(e) => setQuantity(Math.max(1, Math.min(availableStock, parseInt(e.target.value) || 1)))}
+                      min="1"
+                      max={availableStock}
+                      className="qty-input"
+                      disabled={isOutOfStock}
+                    />
+                    <button
+                      onClick={() => setQuantity(Math.min(availableStock, quantity + 1))}
+                      className="qty-btn"
+                      disabled={isOutOfStock || quantity >= availableStock}
+                    >
+                      +
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
 
               <button
                 onClick={handleAddToCart}
-                disabled={adding || availableStock === 0}
-                className="add-to-cart-btn-detail"
+                disabled={adding || isOutOfStock}
+                className={`add-to-cart-btn-detail ${isOutOfStock ? 'btn-out-of-stock' : ''}`}
               >
-                {adding ? 'Adding...' : availableStock === 0 ? 'Out of Stock' : 'Add to Cart'}
+                {adding ? 'Adding...' : isOutOfStock ? 'Out of Stock' : 'Add to Cart'}
               </button>
+
+              {isOutOfStock && (
+                <p className="notify-text">Want to be notified when this item is back in stock?</p>
+              )}
             </div>
 
             {/* Trust Badges */}

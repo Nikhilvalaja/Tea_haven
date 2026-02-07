@@ -18,7 +18,7 @@
 // - loading: Boolean for loading states
 // ============================================
 
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 
 // ----------------------------------------
 // Step 1: Create the Context
@@ -168,7 +168,14 @@ export const AuthProvider = ({ children }) => {
     try {
       setError(null);
       setLoading(true);
-      
+
+      // IMPORTANT: Clear any existing session data before login
+      // This prevents stale data from previous users
+      localStorage.removeItem('teahaven_token');
+      localStorage.removeItem('teahaven_user');
+      setToken(null);
+      setUser(null);
+
       const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: {
@@ -176,25 +183,45 @@ export const AuthProvider = ({ children }) => {
         },
         body: JSON.stringify({ email, password })
       });
-      
+
       const data = await response.json();
-      
+
       if (!response.ok) {
         throw new Error(data.message || 'Login failed');
       }
-      
+
       // Success! Save token and user data
       const { token: newToken, user: newUser } = data.data;
-      
+
+      // Debug: Log the user data received from server
+      console.log('🔐 Login successful - User data from server:', {
+        id: newUser.id,
+        email: newUser.email,
+        role: newUser.role,
+        firstName: newUser.firstName
+      });
+
+      // Ensure role is present
+      if (!newUser.role) {
+        console.warn('⚠️ No role in user data, defaulting to customer');
+        newUser.role = 'customer';
+      }
+
       setToken(newToken);
       setUser(newUser);
-      
-      // Save to localStorage
+
+      // Save to localStorage with explicit stringification
       localStorage.setItem('teahaven_token', newToken);
       localStorage.setItem('teahaven_user', JSON.stringify(newUser));
-      
-      return { success: true, data };
-      
+
+      // Verify what was saved
+      console.log('💾 Saved to localStorage:', {
+        token: newToken.substring(0, 20) + '...',
+        user: JSON.parse(localStorage.getItem('teahaven_user'))
+      });
+
+      return { success: true, data, user: newUser };
+
     } catch (err) {
       setError(err.message);
       return { success: false, error: err.message };
@@ -206,7 +233,8 @@ export const AuthProvider = ({ children }) => {
   // ----------------------------------------
   // Logout Function
   // ----------------------------------------
-  const logout = async () => {
+  const logout = useCallback(async () => {
+    const currentUser = user; // Capture current user for message
     try {
       // Optional: Call logout endpoint
       if (token) {
@@ -225,8 +253,10 @@ export const AuthProvider = ({ children }) => {
       setUser(null);
       localStorage.removeItem('teahaven_token');
       localStorage.removeItem('teahaven_user');
+      console.log('👋 Logged out:', currentUser?.email);
     }
-  };
+    return { success: true, user: currentUser };
+  }, [token, user]);
   
   // ----------------------------------------
   // Context Value

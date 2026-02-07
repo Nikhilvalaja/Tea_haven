@@ -1,46 +1,25 @@
 const express = require('express');
-const { body } = require('express-validator');
 const authController = require('../controllers/authController');
 const { verifyToken } = require('../middleware/auth');
+const { authValidation } = require('../middleware/validation');
 
 const router = express.Router();
 
-const registerValidation = [
-  body('email')
-    .isEmail()
-    .withMessage('Please provide a valid email address')
-    .normalizeEmail(),
-  body('password')
-    .isLength({ min: 6 })
-    .withMessage('Password must be at least 6 characters long')
-    .matches(/\d/)
-    .withMessage('Password must contain at least one number'),
-  body('firstName')
-    .trim()
-    .notEmpty()
-    .withMessage('First name is required')
-    .isLength({ max: 100 })
-    .withMessage('First name must be less than 100 characters'),
-  body('lastName')
-    .trim()
-    .notEmpty()
-    .withMessage('Last name is required')
-    .isLength({ max: 100 })
-    .withMessage('Last name must be less than 100 characters')
-];
-
-const loginValidation = [
-  body('email')
-    .isEmail()
-    .withMessage('Please provide a valid email address')
-    .normalizeEmail(),
-  body('password')
-    .notEmpty()
-    .withMessage('Password is required')
-];
-
-router.post('/register', registerValidation, authController.register);
-router.post('/login', loginValidation, authController.login);
+// Auth routes with centralized validation
+router.post('/register', authValidation.register, authController.register);
+router.post('/login', authValidation.login, authController.login);
+router.post('/logout', verifyToken, authController.logout);
 router.get('/me', verifyToken, authController.getCurrentUser);
+router.get('/sessions', verifyToken, authController.getMySessions);
+router.post('/sessions/invalidate-others', verifyToken, authController.invalidateOtherSessions);
+
+// Password management
+router.post('/forgot-password', authValidation.forgotPassword, authController.forgotPassword);
+router.post('/reset-password', authValidation.resetPassword, authController.resetPassword);
+router.put('/update-password', verifyToken, authValidation.updatePassword, authController.updatePassword);
+
+// Email verification
+router.post('/verify-email/request', verifyToken, authController.requestEmailVerification);
+router.get('/verify-email/:token', authController.verifyEmail);
 
 module.exports = router;

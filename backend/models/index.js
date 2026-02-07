@@ -11,6 +11,12 @@ const CartItem = require('./CartItem');
 const Address = require('./Address');
 const Order = require('./Order');
 const OrderItem = require('./OrderItem');
+const Review = require('./Review');
+const Wishlist = require('./Wishlist');
+const { sequelize } = require('../config/database');
+const InventoryLog = require('./InventoryLog')(sequelize);
+const AdminLog = require('./AdminLog')(sequelize);
+const UserSession = require('./UserSession')(sequelize);
 
 // ============================================
 // MODEL ASSOCIATIONS
@@ -101,6 +107,96 @@ Address.hasMany(Order, {
   as: 'orders'
 });
 
+// InventoryLog belongs to Product
+InventoryLog.belongsTo(Product, {
+  foreignKey: 'productId',
+  as: 'product'
+});
+Product.hasMany(InventoryLog, {
+  foreignKey: 'productId',
+  as: 'inventoryLogs'
+});
+
+// InventoryLog belongs to Order (optional)
+InventoryLog.belongsTo(Order, {
+  foreignKey: 'orderId',
+  as: 'order'
+});
+Order.hasMany(InventoryLog, {
+  foreignKey: 'orderId',
+  as: 'inventoryLogs'
+});
+
+// AdminLog belongs to User (admin who performed action)
+AdminLog.belongsTo(User, {
+  foreignKey: 'adminId',
+  as: 'admin'
+});
+User.hasMany(AdminLog, {
+  foreignKey: 'adminId',
+  as: 'adminLogs'
+});
+
+// UserSession belongs to User
+UserSession.belongsTo(User, {
+  foreignKey: 'userId',
+  as: 'user'
+});
+User.hasMany(UserSession, {
+  foreignKey: 'userId',
+  as: 'sessions'
+});
+
+// Review belongs to Product
+Review.belongsTo(Product, {
+  foreignKey: 'productId',
+  as: 'product'
+});
+Product.hasMany(Review, {
+  foreignKey: 'productId',
+  as: 'reviews'
+});
+
+// Review belongs to User
+Review.belongsTo(User, {
+  foreignKey: 'userId',
+  as: 'user'
+});
+User.hasMany(Review, {
+  foreignKey: 'userId',
+  as: 'reviews'
+});
+
+// Review optionally belongs to Order (verified purchase)
+Review.belongsTo(Order, {
+  foreignKey: 'orderId',
+  as: 'order'
+});
+Order.hasMany(Review, {
+  foreignKey: 'orderId',
+  as: 'reviews'
+});
+
+// Wishlist belongs to User
+Wishlist.belongsTo(User, {
+  foreignKey: 'userId',
+  as: 'user'
+});
+User.hasMany(Wishlist, {
+  foreignKey: 'userId',
+  as: 'wishlistItems'
+});
+
+// Wishlist belongs to Product
+Wishlist.belongsTo(Product, {
+  foreignKey: 'productId',
+  as: 'product'
+});
+Product.hasMany(Wishlist, {
+  foreignKey: 'productId',
+  as: 'wishlistEntries'
+});
+
 // ============================================
 // EXPORT ALL MODELS
 // ============================================
@@ -112,5 +208,11 @@ module.exports = {
   CartItem,
   Address,
   Order,
-  OrderItem
+  OrderItem,
+  Review,
+  Wishlist,
+  InventoryLog,
+  AdminLog,
+  UserSession,
+  sequelize
 };
