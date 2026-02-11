@@ -3,6 +3,7 @@
 // ============================================
 
 const AuthService = require('../services/AuthService');
+const EmailService = require('../services/EmailService');
 const { User, UserSession } = require('../models');
 const { asyncHandler, successResponse, errorResponse } = require('../middleware/errorHandler');
 
@@ -111,13 +112,21 @@ const forgotPassword = asyncHandler(async (req, res) => {
   const result = await AuthService.generatePasswordResetToken(email);
 
   // Always return success for security (don't reveal if email exists)
-  // In production, send email here
   if (result.token) {
-    // TODO: Integrate email service (SendGrid, Nodemailer, etc.)
-    // For now, log it in development
-    if (process.env.NODE_ENV === 'development') {
-      console.log('Password reset token:', result.token);
-      console.log('Reset link: http://localhost:3000/reset-password/' + result.token);
+    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+
+    // Send password reset email
+    const emailResult = await EmailService.sendPasswordResetEmail(email, result.token, baseUrl);
+
+    if (emailResult.success) {
+      console.log('Password reset email sent to:', email);
+    } else {
+      // Log for debugging but don't expose to user
+      console.log('Email send failed:', emailResult.message);
+      // In development, log the reset link
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Reset link:', `${baseUrl}/reset-password/${result.token}`);
+      }
     }
   }
 
