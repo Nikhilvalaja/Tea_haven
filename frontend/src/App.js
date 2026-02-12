@@ -17,6 +17,8 @@ import Products from './pages/Products';
 import ProductDetail from './pages/ProductDetail';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 import Profile from './pages/Profile';
 import Cart from './pages/Cart';
 import Checkout from './pages/Checkout';
@@ -64,6 +66,8 @@ function App() {
               <Route path="/products/:id" element={<CustomerLayout><ProductDetail /></CustomerLayout>} />
               <Route path="/login" element={<CustomerLayout><Login /></CustomerLayout>} />
               <Route path="/register" element={<CustomerLayout><Register /></CustomerLayout>} />
+              <Route path="/forgot-password" element={<CustomerLayout><ForgotPassword /></CustomerLayout>} />
+              <Route path="/reset-password/:token" element={<CustomerLayout><ResetPassword /></CustomerLayout>} />
 
               <Route path="/profile" element={
                 <CustomerLayout>
