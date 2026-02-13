@@ -4,7 +4,6 @@
 
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import api from '../services/api';
 
 const ForgotPassword = () => {
   const [email, setEmail] = useState('');
@@ -26,9 +25,16 @@ const ForgotPassword = () => {
     setMessage('');
 
     try {
-      await api.post('/auth/forgot-password', { email });
+      const response = await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      });
+
+      const data = await response.json();
+
       setSubmitted(true);
-      setMessage('If an account exists with this email, you will receive a password reset link shortly.');
+      setMessage(data.message || 'If an account exists with this email, you will receive a password reset link shortly.');
     } catch (err) {
       // Don't reveal if email exists or not for security
       setSubmitted(true);

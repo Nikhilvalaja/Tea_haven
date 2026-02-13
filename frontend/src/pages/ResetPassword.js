@@ -4,7 +4,6 @@
 
 import React, { useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
-import api from '../services/api';
 
 const ResetPassword = () => {
   const { token } = useParams();
@@ -50,19 +49,28 @@ const ResetPassword = () => {
     setError('');
 
     try {
-      const response = await api.post('/auth/reset-password', {
-        token,
-        password: formData.password
+      const response = await fetch('/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token,
+          password: formData.password
+        })
       });
 
-      setMessage(response.data.message || 'Password reset successful!');
+      const data = await response.json();
 
-      // Redirect to login after 2 seconds
-      setTimeout(() => {
-        navigate('/login');
-      }, 2000);
+      if (response.ok) {
+        setMessage(data.message || 'Password reset successful!');
+        // Redirect to login after 2 seconds
+        setTimeout(() => {
+          navigate('/login');
+        }, 2000);
+      } else {
+        setError(data.message || 'Failed to reset password. The link may have expired.');
+      }
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to reset password. The link may have expired.');
+      setError('Failed to reset password. Please try again.');
     } finally {
       setLoading(false);
     }
