@@ -111,26 +111,23 @@ const forgotPassword = asyncHandler(async (req, res) => {
 
   const result = await AuthService.generatePasswordResetToken(email);
 
-  // Always return success for security (don't reveal if email exists)
-  if (result.token) {
-    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-
-    // Send password reset email
-    const emailResult = await EmailService.sendPasswordResetEmail(email, result.token, baseUrl);
-
-    if (emailResult.success) {
-      console.log('Password reset email sent to:', email);
-    } else {
-      // Log for debugging but don't expose to user
-      console.log('Email send failed:', emailResult.message);
-      // In development, log the reset link
-      if (process.env.NODE_ENV === 'development') {
-        console.log('Reset link:', `${baseUrl}/reset-password/${result.token}`);
-      }
-    }
+  // If no token, the email doesn't exist in our database
+  if (!result.token) {
+    return errorResponse(res, 'No account found with this email address', 404);
   }
 
-  successResponse(res, null, 'If the email exists, a password reset link will be sent');
+  const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+
+  // Send password reset email
+  const emailResult = await EmailService.sendPasswordResetEmail(email, result.token, baseUrl);
+
+  if (emailResult.success) {
+    console.log('Password reset email sent to:', email);
+    successResponse(res, null, 'Password reset link has been sent to your email');
+  } else {
+    console.log('Email send failed:', emailResult.message);
+    return errorResponse(res, 'Failed to send email. Please try again later.', 500);
+  }
 });
 
 // Reset password with token
