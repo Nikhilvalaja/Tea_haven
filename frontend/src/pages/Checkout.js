@@ -108,18 +108,19 @@ const Checkout = () => {
     else if (zones.regional.includes(state)) zone = 'regional';
     else if (zones.remote.includes(state)) zone = 'remote';
 
+    // Free shipping on all orders over $50
+    if (subtotal >= 50) {
+      return 0;
+    }
+
     const rates = {
-      local: { base: 4.99, perItem: 0.50, freeThreshold: 50 },
-      regional: { base: 7.99, perItem: 0.75, freeThreshold: 75 },
-      national: { base: 9.99, perItem: 1.00, freeThreshold: 100 },
-      remote: { base: 14.99, perItem: 1.50, freeThreshold: 150 }
+      local: { base: 4.99, perItem: 0.50 },
+      regional: { base: 7.99, perItem: 0.75 },
+      national: { base: 9.99, perItem: 1.00 },
+      remote: { base: 14.99, perItem: 1.50 }
     };
 
     const rate = rates[zone];
-
-    if (subtotal >= rate.freeThreshold) {
-      return 0;
-    }
 
     return rate.base + (rate.perItem * itemCount);
   };
