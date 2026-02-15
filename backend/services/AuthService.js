@@ -128,11 +128,10 @@ class AuthService {
       return { success: false, message: 'Email already registered' };
     }
 
-    // Create user
-    const hashedPassword = await this.hashPassword(password);
+    // Create user - pass raw password, model's beforeCreate hook will hash it
     const user = await User.create({
       email,
-      password: hashedPassword,
+      password,
       firstName,
       lastName,
       role: 'customer'
@@ -320,10 +319,9 @@ class AuthService {
       return { success: false, message: 'Invalid or expired reset token' };
     }
 
-    const hashedPassword = await this.hashPassword(newPassword);
-
+    // Pass raw password - the User model's beforeUpdate hook will hash it
     await user.update({
-      password: hashedPassword,
+      password: newPassword,
       passwordResetToken: null,
       passwordResetExpires: null
     });
