@@ -1,5 +1,8 @@
 const { Op } = require('sequelize');
 const Product = require('../models/Product');
+const { invalidateCache } = require('../middleware/cache');
+
+const clearProductCache = () => invalidateCache('cache:product*').then(() => invalidateCache('cache:categories:*'));
 
 exports.getAllProducts = async (req, res) => {
   try {
@@ -225,6 +228,8 @@ exports.createProduct = async (req, res) => {
       lastRestockedAt: stockQuantity > 0 ? new Date() : null
     });
 
+    await clearProductCache();
+
     res.status(201).json({
       success: true,
       message: 'Product created successfully',
@@ -254,6 +259,7 @@ exports.updateProduct = async (req, res) => {
     }
 
     await product.update(updates);
+    await clearProductCache();
 
     res.json({
       success: true,
@@ -283,6 +289,7 @@ exports.deleteProduct = async (req, res) => {
     }
 
     await product.update({ isActive: false });
+    await clearProductCache();
 
     res.json({
       success: true,
@@ -335,6 +342,7 @@ exports.toggleProductStatus = async (req, res) => {
 
     product.isActive = !product.isActive;
     await product.save();
+    await clearProductCache();
 
     res.json({
       success: true,

@@ -2,6 +2,7 @@ const express = require('express');
 const productController = require('../controllers/productController');
 const { verifyToken, isAdmin } = require('../middleware/auth');
 const { productValidation, queryValidation } = require('../middleware/validation');
+const { cacheMiddleware } = require('../middleware/cache');
 
 const router = express.Router();
 
@@ -18,10 +19,10 @@ router.post('/admin/inventory/:id/add-stock', verifyToken, isAdmin, productContr
 router.post('/admin/inventory/:id/remove-stock', verifyToken, isAdmin, productController.removeStock);
 router.patch('/admin/:id/toggle-status', verifyToken, isAdmin, productController.toggleProductStatus);
 
-// Public routes
-router.get('/', queryValidation.pagination, productController.getAllProducts);
-router.get('/categories', productController.getCategories);
-router.get('/:id', productValidation.getById, productController.getProductById);
+// Public routes (cached)
+router.get('/', cacheMiddleware('products', 300), queryValidation.pagination, productController.getAllProducts);
+router.get('/categories', cacheMiddleware('categories', 1800), productController.getCategories);
+router.get('/:id', cacheMiddleware('product', 300), productValidation.getById, productController.getProductById);
 
 // Admin product management (CRUD)
 router.post('/admin', verifyToken, isAdmin, productController.createProduct);

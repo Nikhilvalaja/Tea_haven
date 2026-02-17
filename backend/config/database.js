@@ -15,7 +15,7 @@ const sequelize = new Sequelize(
     logging: isDevelopment ? sequelizeLogger : false,
     benchmark: isDevelopment, // Track query duration
     pool: {
-      max: 10,
+      max: 5,
       min: 0,
       acquire: 30000,
       idle: 10000

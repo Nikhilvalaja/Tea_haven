@@ -10,6 +10,7 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const { sequelize } = require('./config/database');
+const redis = require('./config/redis');
 const { logger, httpLogger } = require('./utils/logger');
 const { apiLimiter } = require('./middleware/rateLimiter');
 
@@ -64,14 +65,20 @@ app.use('/api/', apiLimiter);
 // ============================================
 
 // Health check endpoint
-app.get('/api/health', (req, res) => {
-  res.json({
-    success: true,
+app.get('/api/health', async (req, res) => {
+  const dbOk = await sequelize.authenticate().then(() => true).catch(() => false);
+  const redisOk = await redis.ping().then(() => true).catch(() => false);
+  const status = dbOk && redisOk ? 200 : 503;
+
+  res.status(status).json({
+    success: dbOk && redisOk,
     message: 'TeaHaven API is running',
     timestamp: new Date().toISOString(),
-    database: sequelize.authenticate()
-      .then(() => 'connected')
-      .catch(() => 'disconnected')
+    uptime: Math.floor(process.uptime()),
+    services: {
+      database: dbOk ? 'connected' : 'disconnected',
+      redis: redisOk ? 'connected' : 'disconnected'
+    }
   });
 });
 
@@ -123,6 +130,11 @@ app.use(globalErrorHandler);
 
 const startServer = async () => {
   try {
+    // Connect to Redis
+    logger.info('Connecting to Redis...');
+    await redis.connect();
+    logger.info('Redis connected successfully');
+
     // Test database connection
     logger.info('Connecting to database...');
     await sequelize.authenticate();
@@ -201,6 +213,8 @@ const gracefulShutdown = async (signal) => {
   logger.info(`${signal} received. Starting graceful shutdown...`);
 
   try {
+    await redis.quit();
+    logger.info('Redis connection closed');
     await sequelize.close();
     logger.info('Database connections closed');
     logger.info('Server shut down gracefully');
