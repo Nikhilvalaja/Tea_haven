@@ -13,6 +13,7 @@ const { sequelize } = require('./config/database');
 const redis = require('./config/redis');
 const { logger, httpLogger } = require('./utils/logger');
 const { apiLimiter } = require('./middleware/rateLimiter');
+const { register, metricsMiddleware } = require('./middleware/metrics');
 
 // Import route modules
 const authRoutes = require('./routes/authRoutes');
@@ -57,12 +58,21 @@ app.use(express.urlencoded({ extended: true }));
 // HTTP request logging (Winston + Morgan)
 app.use(httpLogger);
 
+// Prometheus metrics
+app.use(metricsMiddleware);
+
 // Rate limiting
 app.use('/api/', apiLimiter);
 
 // ============================================
 // API ROUTES
 // ============================================
+
+// Prometheus metrics endpoint (scraped by Grafana Alloy)
+app.get('/metrics', async (req, res) => {
+  res.set('Content-Type', register.contentType);
+  res.end(await register.metrics());
+});
 
 // Health check endpoint
 app.get('/api/health', async (req, res) => {

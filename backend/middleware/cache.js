@@ -4,6 +4,7 @@
 
 const redis = require('../config/redis');
 const { logger } = require('../utils/logger');
+const { cacheHits, cacheMisses } = require('./metrics');
 
 /**
  * Cache middleware for GET requests.
@@ -21,8 +22,10 @@ const cacheMiddleware = (keyPrefix, ttlSeconds = 300) => {
       const cached = await redis.get(key);
       if (cached) {
         logger.debug(`Cache HIT: ${key}`);
+        cacheHits.inc({ key_prefix: keyPrefix });
         return res.json(JSON.parse(cached));
       }
+      cacheMisses.inc({ key_prefix: keyPrefix });
     } catch (err) {
       // Redis down — fall through to handler
       logger.debug(`Cache error: ${err.message}`);

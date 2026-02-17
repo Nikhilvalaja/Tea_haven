@@ -1,0 +1,27 @@
+// ============================================
+// GRAFANA ALLOY CONFIGURATION
+// ============================================
+// Scrapes Prometheus metrics from the TeaHaven backend
+// and ships them to Grafana Cloud.
+
+prometheus.scrape "teahaven_backend" {
+  targets = [{
+    __address__ = "backend:5000",
+  }]
+  forward_to      = [prometheus.remote_write.grafana_cloud.receiver]
+  scrape_interval = "15s"
+  scrape_timeout  = "10s"
+  metrics_path    = "/metrics"
+  job_name        = "teahaven-backend"
+}
+
+prometheus.remote_write "grafana_cloud" {
+  endpoint {
+    url = env("GRAFANA_REMOTE_WRITE_URL")
+
+    basic_auth {
+      username = env("GRAFANA_REMOTE_WRITE_USER")
+      password = env("GRAFANA_REMOTE_WRITE_TOKEN")
+    }
+  }
+}
