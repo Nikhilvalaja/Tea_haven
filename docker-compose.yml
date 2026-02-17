@@ -1,7 +1,7 @@
 # ============================================
 # TEAHAVEN - DOCKER COMPOSE (PRODUCTION)
 # ============================================
-# Usage: docker-compose up -d
+# Usage: docker compose --env-file .env.production up -d
 
 version: '3.8'
 
@@ -16,8 +16,14 @@ services:
       MYSQL_DATABASE: ${DB_NAME:-teahaven}
       MYSQL_USER: ${DB_USER:-teahaven}
       MYSQL_PASSWORD: ${DB_PASSWORD:-teahaven123}
-    ports:
-      - "3306:3306"
+    command: >
+      --innodb-buffer-pool-size=128M
+      --max-connections=30
+      --innodb-log-file-size=32M
+      --tmp-table-size=16M
+      --max-heap-table-size=16M
+      --table-open-cache=200
+      --performance-schema=OFF
     volumes:
       - mysql_data:/var/lib/mysql
       - ./database/init:/docker-entrypoint-initdb.d
@@ -28,14 +34,26 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+        reservations:
+          memory: 256M
+    oom_score_adj: -500
 
   # Redis (for sessions and caching)
   redis:
     image: redis:7-alpine
     container_name: teahaven-redis
     restart: unless-stopped
-    ports:
-      - "6379:6379"
+    command: >
+      redis-server
+      --maxmemory 48mb
+      --maxmemory-policy allkeys-lru
+      --save 900 1
+      --save 300 10
+      --appendonly yes
     volumes:
       - redis_data:/data
     networks:
@@ -45,6 +63,10 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 64M
 
   # Backend API
   backend:
@@ -55,6 +77,7 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
+      NODE_OPTIONS: "--max-old-space-size=160"
       PORT: 5000
       DB_HOST: mysql
       DB_PORT: 3306
@@ -73,8 +96,6 @@ services:
       SMTP_USER: ${SMTP_USER}
       SMTP_PASSWORD: ${SMTP_PASSWORD}
       EMAIL_FROM: ${EMAIL_FROM}
-    ports:
-      - "5000:5000"
     volumes:
       - backend_logs:/app/logs
     depends_on:
@@ -84,6 +105,11 @@ services:
         condition: service_healthy
     networks:
       - teahaven-network
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+    oom_score_adj: 300
 
   # Frontend (React/Nginx)
   frontend:
@@ -107,6 +133,10 @@ services:
       - backend
     networks:
       - teahaven-network
+    deploy:
+      resources:
+        limits:
+          memory: 64M
 
   # Certbot (SSL certificate renewal)
   certbot:
@@ -119,6 +149,10 @@ services:
     entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
     networks:
       - teahaven-network
+    deploy:
+      resources:
+        limits:
+          memory: 32M
 
 volumes:
   mysql_data:
