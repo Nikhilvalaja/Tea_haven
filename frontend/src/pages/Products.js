@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import ProductCard from '../components/ProductCard';
+import SEO from '../components/SEO';
 import '../ProductsPage.css';
 
 const Products = () => {
@@ -188,6 +189,11 @@ const Products = () => {
 
   return (
     <div className="products-page">
+      <SEO
+        title="Browse Premium Teas"
+        description="Explore our collection of premium imported teas. Filter by type, origin, and price. Green tea, black tea, oolong, herbal and more."
+        path="/products"
+      />
       <div className="products-container">
         {/* Header */}
         <div className="products-header">

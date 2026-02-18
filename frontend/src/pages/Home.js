@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import ProductCard from '../components/ProductCard';
+import SEO from '../components/SEO';
 
 const Home = () => {
   const { isAuthenticated } = useAuth();
@@ -27,6 +28,11 @@ const Home = () => {
 
   return (
     <div className="modern-home">
+      <SEO
+        title="Premium Imported Tea | Shop Online"
+        description="Shop premium imported teas from the world's finest tea gardens. Green tea, black tea, oolong, herbal blends and more. Free shipping over $50."
+        path="/"
+      />
       {/* Hero Section */}
       <section className="modern-hero">
         <div className="hero-overlay"></div>

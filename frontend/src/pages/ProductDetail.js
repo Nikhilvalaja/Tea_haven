@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
+import SEO from '../components/SEO';
 
 const ProductDetail = () => {
   const { id } = useParams();
@@ -62,6 +63,13 @@ const ProductDetail = () => {
 
   return (
     <div className="product-detail-page">
+      <SEO
+        title={product.name}
+        description={`Buy ${product.name} - ${product.description?.substring(0, 120)}. Premium tea from TeaHaven.`}
+        path={`/products/${id}`}
+        type="product"
+        product={{ name: product.name, description: product.description, price: product.price, stock: product.stock }}
+      />
       <div className="container-modern">
         <div className="product-detail-grid">
           {/* Gallery Section */}

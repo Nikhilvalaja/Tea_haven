@@ -26,6 +26,7 @@ const inventoryRoutes = require('./routes/inventoryRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const reviewRoutes = require('./routes/reviewRoutes');
 const wishlistRoutes = require('./routes/wishlistRoutes');
+const sitemapRoutes = require('./routes/sitemapRoutes');
 
 // ============================================
 // SERVER CONFIGURATION
@@ -103,6 +104,7 @@ app.use('/api/inventory', inventoryRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/wishlist', wishlistRoutes);
+app.use('/api', sitemapRoutes);
 
 // Root endpoint
 app.get('/', (req, res) => {
