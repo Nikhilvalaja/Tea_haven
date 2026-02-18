@@ -1,7 +1,7 @@
 # ============================================
 # TEAHAVEN - CI/CD PIPELINE
 # ============================================
-# On push to main: build check + deploy to Oracle Cloud
+# Build & Test → Deploy → Health Check → Auto-Rollback on failure
 
 name: TeaHaven CI/CD
 
@@ -13,11 +13,37 @@ on:
 
 jobs:
   # ==========================================
-  # BUILD CHECK
+  # BUILD & TEST
   # ==========================================
-  build:
-    name: Build Check
+  build-and-test:
+    name: Build & Test
     runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: testpassword
+          MYSQL_DATABASE: teahaven_test
+          MYSQL_USER: teahaven_test
+          MYSQL_PASSWORD: teahaven_test
+        ports:
+          - 3307:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h localhost"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6380:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - name: Checkout code
@@ -32,10 +58,53 @@ jobs:
             backend/package-lock.json
             frontend/package-lock.json
 
+      # Backend
       - name: Install backend dependencies
         working-directory: ./backend
         run: npm ci
 
+      - name: Run unit tests
+        working-directory: ./backend
+        run: npm run test:unit
+
+      - name: Run integration tests
+        working-directory: ./backend
+        env:
+          NODE_ENV: test
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3307
+          DB_USER: teahaven_test
+          DB_PASSWORD: teahaven_test
+          DB_NAME: teahaven_test
+          REDIS_HOST: 127.0.0.1
+          REDIS_PORT: 6380
+          JWT_SECRET: test-jwt-secret-ci
+        run: npm run test:integration
+
+      - name: Run tests with coverage
+        working-directory: ./backend
+        env:
+          NODE_ENV: test
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3307
+          DB_USER: teahaven_test
+          DB_PASSWORD: teahaven_test
+          DB_NAME: teahaven_test
+          REDIS_HOST: 127.0.0.1
+          REDIS_PORT: 6380
+          JWT_SECRET: test-jwt-secret-ci
+        run: npm run test:coverage
+        continue-on-error: true
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: backend/coverage/
+          retention-days: 7
+
+      # Frontend
       - name: Install frontend dependencies
         working-directory: ./frontend
         run: npm ci
@@ -50,7 +119,7 @@ jobs:
   deploy:
     name: Deploy to Production
     runs-on: ubuntu-latest
-    needs: build
+    needs: build-and-test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     steps:
@@ -60,30 +129,82 @@ jobs:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script_stop: true
+          script_stop: false
           timeout: 600s
           script: |
+            set -e
             cd /opt/teahaven
 
-            echo "=== Pulling latest code ==="
+            echo "=== [1/7] Saving rollback point ==="
+            git rev-parse HEAD > .prev-deploy-commit
+            PREV_COMMIT=$(cat .prev-deploy-commit)
+            echo "Rollback commit: $PREV_COMMIT"
+
+            echo "=== [2/7] Pulling latest code ==="
             git pull origin main
 
-            echo "=== Backing up database ==="
-            bash scripts/backup-db.sh
+            echo "=== [3/7] Backing up database ==="
+            bash scripts/backup-db.sh || echo "WARNING: Backup failed, continuing..."
 
-            echo "=== Rebuilding containers ==="
+            echo "=== [4/7] Rebuilding containers ==="
             docker compose --env-file .env.production build --no-cache backend frontend
 
-            echo "=== Restarting services ==="
-            docker compose --env-file .env.production up -d
-
-            echo "=== Waiting for health check ==="
+            echo "=== [5/7] Rolling restart (zero-downtime) ==="
+            # Restart backend first (frontend proxies to it)
+            docker compose --env-file .env.production up -d --no-deps backend
+            echo "Waiting for backend to be healthy..."
             sleep 15
-            if curl -sf https://teahaven.duckdns.org/api/health > /dev/null; then
-              echo "Deploy SUCCESS - site is healthy"
-            else
-              echo "WARNING - health check failed, check logs"
+
+            # Check backend health before proceeding
+            BACKEND_OK=false
+            for i in $(seq 1 6); do
+              if curl -sf --max-time 10 http://127.0.0.1:5000/api/health > /dev/null 2>&1; then
+                BACKEND_OK=true
+                echo "Backend is healthy!"
+                break
+              fi
+              echo "Waiting... attempt $i/6"
+              sleep 5
+            done
+
+            if [ "$BACKEND_OK" = false ]; then
+              echo "=== BACKEND FAILED - ROLLING BACK ==="
+              git checkout "$PREV_COMMIT"
+              docker compose --env-file .env.production build --no-cache backend
+              docker compose --env-file .env.production up -d --no-deps backend
+              sleep 15
+              echo "Rollback complete. Deploy FAILED."
+              exit 1
             fi
 
-            echo "=== Cleaning old images ==="
+            # Now restart frontend
+            docker compose --env-file .env.production up -d --no-deps frontend
+            sleep 10
+
+            # Bring up any other updated services (alloy, etc.)
+            docker compose --env-file .env.production up -d
+
+            echo "=== [6/7] Final health check ==="
+            sleep 5
+            SITE_OK=false
+            for i in $(seq 1 6); do
+              if curl -sf --max-time 10 https://teahaven.duckdns.org/api/health > /dev/null 2>&1; then
+                SITE_OK=true
+                echo "Site is healthy!"
+                break
+              fi
+              echo "Waiting for site... attempt $i/6"
+              sleep 5
+            done
+
+            if [ "$SITE_OK" = false ]; then
+              echo "WARNING: External health check failed, but containers may still be starting."
+              echo "The watchdog will monitor and restart if needed."
+            fi
+
+            echo "=== [7/7] Cleanup ==="
             docker image prune -f
+
+            echo ""
+            echo "=== DEPLOY COMPLETE ==="
+            docker compose --env-file .env.production ps

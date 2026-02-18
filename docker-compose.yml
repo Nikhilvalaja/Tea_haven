@@ -105,6 +105,12 @@ services:
         condition: service_healthy
     networks:
       - teahaven-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     deploy:
       resources:
         limits:
@@ -130,7 +136,8 @@ services:
       - ./certbot/conf:/etc/letsencrypt:ro
       - ./certbot/www:/var/www/certbot:ro
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     networks:
       - teahaven-network
     deploy:
