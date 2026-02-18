@@ -6,7 +6,7 @@
 
 prometheus.scrape "teahaven_backend" {
   targets = [{
-    __address__ = "backend:5000",
+    __address__ = "localhost:5000",
   }]
   forward_to      = [prometheus.remote_write.grafana_cloud.receiver]
   scrape_interval = "15s"

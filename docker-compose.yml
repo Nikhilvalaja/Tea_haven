@@ -94,6 +94,8 @@ services:
       SMTP_USER: ${SMTP_USER}
       SMTP_PASSWORD: ${SMTP_PASSWORD}
       EMAIL_FROM: ${EMAIL_FROM}
+    ports:
+      - "127.0.0.1:5000:5000"
     volumes:
       - backend_logs:/app/logs
     depends_on:
@@ -153,10 +155,12 @@ services:
           memory: 32M
 
   # Grafana Alloy (metrics shipper → Grafana Cloud)
+  # Uses host network for outbound internet access (Oracle Cloud Docker bridge limitation)
   alloy:
     image: grafana/alloy:latest
     container_name: teahaven-alloy
     restart: unless-stopped
+    network_mode: host
     volumes:
       - ./docker/alloy-config.alloy:/etc/alloy/config.alloy:ro
     command:
@@ -167,10 +171,6 @@ services:
       GRAFANA_REMOTE_WRITE_URL: https://prometheus-prod-56-prod-us-east-2.grafana.net/api/prom/push
       GRAFANA_REMOTE_WRITE_USER: "2983436"
       GRAFANA_REMOTE_WRITE_TOKEN: ${GRAFANA_API_TOKEN}
-    depends_on:
-      - backend
-    networks:
-      - teahaven-network
     deploy:
       resources:
         limits:
