@@ -52,10 +52,20 @@ done
 if [ "$HEALTH_OK" = false ]; then
   log "WARNING: Backend health check failed. Restarting backend..."
   docker compose --env-file .env.production restart backend >> "$LOGFILE" 2>&1
-  sleep 15
+  sleep 40
 
-  # Recheck after restart
-  if ! curl -sf --max-time 10 http://127.0.0.1:5000/api/health > /dev/null 2>&1; then
+  # Recheck after restart (give it time for DB/Redis deps)
+  RECOVERED=false
+  for i in 1 2 3; do
+    if curl -sf --max-time 10 http://127.0.0.1:5000/api/health > /dev/null 2>&1; then
+      RECOVERED=true
+      log "OK: Backend recovered after restart."
+      break
+    fi
+    sleep 10
+  done
+
+  if [ "$RECOVERED" = false ]; then
     log "CRITICAL: Backend still failing after restart. Full restart..."
     docker compose --env-file .env.production down >> "$LOGFILE" 2>&1
     sleep 5
