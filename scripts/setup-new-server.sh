@@ -155,7 +155,7 @@ sleep 30
 # Check health
 HEALTHY=false
 for i in $(seq 1 10); do
-    if curl -sf --max-time 10 http://127.0.0.1:5000/api/health > /dev/null 2>&1; then
+    if curl -sf --max-time 10 http://127.0.0.1:8080/api/health > /dev/null 2>&1; then
         HEALTHY=true
         echo "  Backend is healthy!"
         break
@@ -191,13 +191,13 @@ docker compose --env-file .env.production ps
 echo ""
 
 # Check if site responds
-if curl -sf --max-time 10 http://127.0.0.1/health > /dev/null 2>&1; then
+if curl -sf --max-time 10 http://127.0.0.1:8080/health > /dev/null 2>&1; then
     echo "  Frontend: OK"
 else
     echo "  Frontend: waiting (may need a minute)"
 fi
 
-if curl -sf --max-time 10 http://127.0.0.1:5000/api/health > /dev/null 2>&1; then
+if curl -sf --max-time 10 http://127.0.0.1:8080/api/health > /dev/null 2>&1; then
     echo "  Backend API: OK"
 else
     echo "  Backend API: waiting"
