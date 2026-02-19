@@ -15,7 +15,7 @@ router.get('/sitemap-products.xml', cacheMiddleware('sitemap', 3600), async (req
 
     const urls = products.map(p => `
   <url>
-    <loc>https://teahaven.duckdns.org/products/${p.id}</loc>
+    <loc>https://teahaven.learning.interchainlabs.com/products/${p.id}</loc>
     <lastmod>${p.updatedAt.toISOString().split('T')[0]}</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>

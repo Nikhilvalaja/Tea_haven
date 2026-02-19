@@ -9,5 +9,5 @@ Disallow: /profile
 Disallow: /orders
 Disallow: /addresses
 
-Sitemap: https://teahaven.duckdns.org/sitemap.xml
-Sitemap: https://teahaven.duckdns.org/api/sitemap-products.xml
+Sitemap: https://teahaven.learning.interchainlabs.com/sitemap.xml
+Sitemap: https://teahaven.learning.interchainlabs.com/api/sitemap-products.xml

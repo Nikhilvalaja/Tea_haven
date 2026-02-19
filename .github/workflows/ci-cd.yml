@@ -188,7 +188,7 @@ jobs:
             sleep 5
             SITE_OK=false
             for i in $(seq 1 6); do
-              if curl -sf --max-time 10 https://teahaven.duckdns.org/api/health > /dev/null 2>&1; then
+              if curl -sf --max-time 10 http://127.0.0.1/health > /dev/null 2>&1; then
                 SITE_OK=true
                 echo "Site is healthy!"
                 break
@@ -198,7 +198,7 @@ jobs:
             done
 
             if [ "$SITE_OK" = false ]; then
-              echo "WARNING: External health check failed, but containers may still be starting."
+              echo "WARNING: Frontend health check failed, but containers may still be starting."
               echo "The watchdog will monitor and restart if needed."
             fi
 

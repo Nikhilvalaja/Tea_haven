@@ -1,6 +1,6 @@
 import { Helmet } from 'react-helmet-async';
 
-const SITE_URL = 'https://teahaven.duckdns.org';
+const SITE_URL = 'https://teahaven.learning.interchainlabs.com';
 const SITE_NAME = 'TeaHaven';
 
 const SEO = ({ title, description, path = '/', type = 'website', product = null }) => {

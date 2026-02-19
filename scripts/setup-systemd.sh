@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================
-# TEAHAVEN - SYSTEMD + WATCHDOG + DUCKDNS SETUP
+# TEAHAVEN - SYSTEMD + WATCHDOG SETUP
 # ============================================
 # Run once on server: sudo bash scripts/setup-systemd.sh
 # This makes TeaHaven survive reboots, crashes, and OOM kills.
@@ -10,7 +10,7 @@ set -e
 echo "=== TeaHaven Systemd Setup ==="
 
 # Step 1: Create systemd service (starts on boot)
-echo "[1/6] Creating systemd service..."
+echo "[1/5] Creating systemd service..."
 cat > /etc/systemd/system/teahaven.service << 'EOF'
 [Unit]
 Description=TeaHaven Docker Compose Application
@@ -33,7 +33,7 @@ WantedBy=multi-user.target
 EOF
 
 # Step 2: Create health watchdog service
-echo "[2/6] Creating health watchdog service..."
+echo "[2/5] Creating health watchdog service..."
 cat > /etc/systemd/system/teahaven-watchdog.service << 'EOF'
 [Unit]
 Description=TeaHaven Health Watchdog
@@ -45,7 +45,7 @@ ExecStart=/bin/bash /opt/teahaven/scripts/health-watchdog.sh
 EOF
 
 # Step 3: Create watchdog timer (runs every 2 minutes)
-echo "[3/6] Creating watchdog timer..."
+echo "[3/5] Creating watchdog timer..."
 cat > /etc/systemd/system/teahaven-watchdog.timer << 'EOF'
 [Unit]
 Description=TeaHaven Health Watchdog Timer
@@ -60,7 +60,7 @@ WantedBy=timers.target
 EOF
 
 # Step 4: Enable all services
-echo "[4/6] Enabling systemd services..."
+echo "[4/5] Enabling systemd services..."
 systemctl daemon-reload
 systemctl enable docker.service
 systemctl enable teahaven.service
@@ -69,28 +69,8 @@ systemctl start teahaven-watchdog.timer
 echo "  - TeaHaven starts on boot"
 echo "  - Watchdog checks health every 2 minutes"
 
-# Step 5: Setup DuckDNS auto-update (keeps DNS alive)
-echo "[5/6] Setting up DuckDNS auto-update..."
-DUCKDNS_TOKEN="${DUCKDNS_TOKEN:-}"
-if [ -z "$DUCKDNS_TOKEN" ]; then
-    echo "  Skipping DuckDNS - no token provided."
-    echo "  To set up later, run:"
-    echo "    DUCKDNS_TOKEN=your-token sudo bash scripts/setup-systemd.sh"
-else
-    # Create DuckDNS update script
-    cat > /opt/teahaven/scripts/duckdns-update.sh << DEOF
-#!/bin/bash
-curl -s "https://www.duckdns.org/update?domains=teahaven&token=${DUCKDNS_TOKEN}&ip=" > /dev/null
-DEOF
-    chmod +x /opt/teahaven/scripts/duckdns-update.sh
-
-    # Add cron job (every 5 minutes)
-    (crontab -l 2>/dev/null | grep -v duckdns; echo "*/5 * * * * /opt/teahaven/scripts/duckdns-update.sh") | crontab -
-    echo "  DuckDNS will update every 5 minutes."
-fi
-
-# Step 6: Setup log rotation for watchdog
-echo "[6/6] Setting up log rotation..."
+# Step 5: Setup log rotation for watchdog
+echo "[5/5] Setting up log rotation..."
 cat > /etc/logrotate.d/teahaven-watchdog << 'EOF'
 /var/log/teahaven-watchdog.log {
     weekly
