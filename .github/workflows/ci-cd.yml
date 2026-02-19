@@ -158,7 +158,7 @@ jobs:
             # Check backend health before proceeding
             BACKEND_OK=false
             for i in $(seq 1 6); do
-              if curl -sf --max-time 10 http://127.0.0.1:5001/api/health > /dev/null 2>&1; then
+              if curl -sf --max-time 10 http://127.0.0.1/api/health > /dev/null 2>&1; then
                 BACKEND_OK=true
                 echo "Backend is healthy!"
                 break
