@@ -42,7 +42,7 @@ fi
 # Check 3: Can we reach the backend health endpoint?
 HEALTH_OK=false
 for i in 1 2 3; do
-  if curl -sf --max-time 10 http://127.0.0.1:5000/api/health > /dev/null 2>&1; then
+  if curl -sf --max-time 10 http://127.0.0.1:5001/api/health > /dev/null 2>&1; then
     HEALTH_OK=true
     break
   fi
@@ -57,7 +57,7 @@ if [ "$HEALTH_OK" = false ]; then
   # Recheck after restart (give it time for DB/Redis deps)
   RECOVERED=false
   for i in 1 2 3; do
-    if curl -sf --max-time 10 http://127.0.0.1:5000/api/health > /dev/null 2>&1; then
+    if curl -sf --max-time 10 http://127.0.0.1:5001/api/health > /dev/null 2>&1; then
       RECOVERED=true
       log "OK: Backend recovered after restart."
       break

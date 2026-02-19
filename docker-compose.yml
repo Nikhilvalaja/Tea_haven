@@ -94,7 +94,7 @@ services:
       SMTP_PASSWORD: ${SMTP_PASSWORD}
       EMAIL_FROM: ${EMAIL_FROM}
     ports:
-      - "127.0.0.1:5000:5000"
+      - "127.0.0.1:5001:5000"
     volumes:
       - backend_logs:/app/logs
     depends_on:
