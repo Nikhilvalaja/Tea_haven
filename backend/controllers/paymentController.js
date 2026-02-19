@@ -1,4 +1,6 @@
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const stripe = process.env.STRIPE_SECRET_KEY
+  ? require('stripe')(process.env.STRIPE_SECRET_KEY)
+  : null;
 const { Order, OrderItem, Cart, CartItem, Product, User, Address, sequelize } = require('../models');
 const { calculateShipping, calculateTax } = require('../utils/shippingCalculator');
 const { logger } = require('../utils/logger');
